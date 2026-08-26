@@ -3489,7 +3489,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const data = typeof dataJsonStr === 'string' ? JSON.parse(dataJsonStr) : dataJsonStr;
             const sym = data.ticker || data.symbol || 'ASSET';
             const score = data.score !== undefined ? data.score : (data.setup_score || 3.0);
-            const stars = data.stars_visual || '?????';
+            const stars = data.stars_visual || '★★★☆☆';
             const archetype = data.archetype || 'ARCHETYPE_E';
             const pattern = data.primary_pattern || data.pattern_badge || 'Technical Setup';
             const chk = data.criteria_checklist || {{}};
@@ -3503,22 +3503,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const exDesc = data.exhaustion_desc || '';
 
             let chkHtml = '';
-            chkHtml += '<div class="hover-row"><span>Stage 2 Trend:</span> <span class="' + (chk.stage2_trend ? 'hover-tag-pass">? Confirmed' : 'hover-tag-fail">? Off-Trend') + '</span></div>';
-            chkHtml += '<div class="hover-row"><span>MA Ribbon (10/20/50):</span> <span class="' + (chk.ma_ribbon ? 'hover-tag-pass">? Bullish Stack' : 'hover-tag-fail">? Mixed') + '</span></div>';
-            chkHtml += '<div class="hover-row"><span>5-Day Range Tightness:</span> <strong>' + (chk.five_day_range_pct !== undefined ? chk.five_day_range_pct + '%' : '?') + '</strong></div>';
-            chkHtml += '<div class="hover-row"><span>Distance to 52W High:</span> <strong>' + (chk.dist_to_52w_high_pct !== undefined ? chk.dist_to_52w_high_pct + '%' : '?') + '</strong></div>';
-            chkHtml += '<div class="hover-row"><span>Session RVOL:</span> <strong style="color: #38bdf8;">' + (chk.rvol !== undefined ? chk.rvol + 'x' : '?') + '</strong></div>';
-            chkHtml += '<div class="hover-row"><span>Intraday Close Loc:</span> <strong>' + (chk.close_location_pct !== undefined ? chk.close_location_pct + '%' : '?') + '</strong></div>';
+            chkHtml += '<div class="hover-row"><span>Stage 2 Trend:</span> <span class="' + (chk.stage2_trend ? 'hover-tag-pass">✅ Confirmed' : 'hover-tag-fail">❌ Off-Trend') + '</span></div>';
+            chkHtml += '<div class="hover-row"><span>MA Ribbon (10/20/50):</span> <span class="' + (chk.ma_ribbon ? 'hover-tag-pass">✅ Bullish Stack' : 'hover-tag-fail">❌ Mixed') + '</span></div>';
+            chkHtml += '<div class="hover-row"><span>5-Day Range Tightness:</span> <strong>' + (chk.five_day_range_pct !== undefined ? chk.five_day_range_pct + '%' : '—') + '</strong></div>';
+            chkHtml += '<div class="hover-row"><span>Distance to 52W High:</span> <strong>' + (chk.dist_to_52w_high_pct !== undefined ? chk.dist_to_52w_high_pct + '%' : '—') + '</strong></div>';
+            chkHtml += '<div class="hover-row"><span>Session RVOL:</span> <strong style="color: #38bdf8;">' + (chk.rvol !== undefined ? chk.rvol + 'x' : '—') + '</strong></div>';
+            chkHtml += '<div class="hover-row"><span>Intraday Close Loc:</span> <strong>' + (chk.close_location_pct !== undefined ? chk.close_location_pct + '%' : '—') + '</strong></div>';
 
             let brkHtml = '';
-            brkHtml += '<div class="hover-row"><span>Base Geometry / Contraction:</span> <strong style="color: #34d399;">+' + (brk.base_points || 0).toFixed(2) + '?</strong></div>';
-            brkHtml += '<div class="hover-row"><span>Volume Dry-Up / Surge:</span> <strong style="color: #34d399;">+' + (brk.vol_points || 0).toFixed(2) + '?</strong></div>';
-            brkHtml += '<div class="hover-row"><span>Trend Template Alignment:</span> <strong style="color: #34d399;">+' + (brk.trend_points || 0).toFixed(2) + '?</strong></div>';
-            brkHtml += '<div class="hover-row"><span>Catalyst Shock Impact:</span> <strong style="color: #34d399;">+' + (brk.catalyst_points || 0).toFixed(2) + '?</strong></div>';
-            brkHtml += '<div class="hover-row"><span>Options Gamma / Skew Magnet:</span> <strong style="color: #38bdf8;">+' + (brk.gamma_points || 0).toFixed(2) + '?</strong></div>';
-            brkHtml += '<div class="hover-row"><span>4D Macro Regime Multiplier:</span> <strong style="color: #38bdf8;">+' + (brk.macro_points || 0).toFixed(2) + '?</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Base Geometry / Contraction:</span> <strong style="color: #34d399;">+' + (brk.base_points || 0).toFixed(2) + '★</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Volume Dry-Up / Surge:</span> <strong style="color: #34d399;">+' + (brk.vol_points || 0).toFixed(2) + '★</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Trend Template Alignment:</span> <strong style="color: #34d399;">+' + (brk.trend_points || 0).toFixed(2) + '★</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Catalyst Shock Impact:</span> <strong style="color: #34d399;">+' + (brk.catalyst_points || 0).toFixed(2) + '★</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Options Gamma / Skew Magnet:</span> <strong style="color: #38bdf8;">+' + (brk.gamma_points || 0).toFixed(2) + '★</strong></div>';
+            brkHtml += '<div class="hover-row"><span>4D Macro Regime Multiplier:</span> <strong style="color: #38bdf8;">+' + (brk.macro_points || 0).toFixed(2) + '★</strong></div>';
             if (isExhausted) {{
-                brkHtml += '<div class="hover-row" style="color: #f87171;"><span>Exhaustion Penalty:</span> <strong>-' + (brk.exhaustion_penalty || 0).toFixed(2) + '?</strong></div>';
+                brkHtml += '<div class="hover-row" style="color: #f87171;"><span>Exhaustion Penalty:</span> <strong>-' + (brk.exhaustion_penalty || 0).toFixed(2) + '★</strong></div>';
             }}
 
             let planHtml = '';
@@ -3531,18 +3531,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             planHtml += '<div class="hover-row"><span>Conviction Mult:</span> <strong>' + (plan.conviction_mult || 1.0).toFixed(2) + 'x</strong></div>';
 
             let catHtml = '';
-            catHtml += '<div style="margin-bottom: 4px;"><span class="pill pill-blue">[' + catType + ']</span> <span style="color: #fbbf24; font-weight: bold;">' + '?'.repeat(Math.min(5, Math.max(1, Math.round(catStars)))) + '</span></div>';
+            catHtml += '<div style="margin-bottom: 4px;"><span class="pill pill-blue">[' + catType + ']</span> <span style="color: #fbbf24; font-weight: bold;">' + '★'.repeat(Math.min(5, Math.max(1, Math.round(catStars)))) + '</span></div>';
             catHtml += '<div style="font-size: 11.5px; margin-bottom: 4px;"><a href="' + catUrl + '" target="_blank" style="color: #93c5fd; text-decoration: none;">' + catHeadline + '</a></div>';
 
             let html = '';
-            html += '<div class="hover-card-title"><span>?? ' + sym + ' ? Diagnostic Scorecard</span> <span style="color: #a78bfa;">' + stars + ' ' + score.toFixed(1) + '?</span></div>';
+            html += '<div class="hover-card-title"><span>🔍 ' + sym + ' • Diagnostic Scorecard</span> <span style="color: #a78bfa;">' + stars + ' ' + score.toFixed(1) + '★</span></div>';
             if (isExhausted) {{
                 html += '<div style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; font-size: 11px; color: #fca5a5;">' + exDesc + '</div>';
             }}
-            html += '<div class="hover-section"><div class="hover-section-header"><span>?? 1. Setup Criteria Checklist</span><span>' + pattern + '</span></div>' + chkHtml + '</div>';
-            html += '<div class="hover-section"><div class="hover-section-header"><span>?? 2. Bespoke Score Breakdown Math</span><span>' + archetype + '</span></div>' + brkHtml + '</div>';
-            html += '<div class="hover-section"><div class="hover-section-header"><span>?? 3. Institutional Trade Plan & Execution</span><span>R:R 2.0R/3.5R</span></div>' + planHtml + '</div>';
-            html += '<div class="hover-section"><div class="hover-section-header"><span>?? 4. Catalyst & News Intelligence</span></div>' + catHtml + '</div>';
+            html += '<div class="hover-section"><div class="hover-section-header"><span>📐 1. Setup Criteria Checklist</span><span>' + pattern + '</span></div>' + chkHtml + '</div>';
+            html += '<div class="hover-section"><div class="hover-section-header"><span>🧮 2. Bespoke Score Breakdown Math</span><span>' + archetype + '</span></div>' + brkHtml + '</div>';
+            html += '<div class="hover-section"><div class="hover-section-header"><span>🎯 3. Institutional Trade Plan & Execution</span><span>R:R 2.0R/3.5R</span></div>' + planHtml + '</div>';
+            html += '<div class="hover-section"><div class="hover-section-header"><span>📰 4. Catalyst & News Intelligence</span></div>' + catHtml + '</div>';
 
             content.innerHTML = html;
             portal.style.display = 'block';
@@ -4076,7 +4076,7 @@ class HTMLReportGenerator:
 
                 cat_cat = item.get("catalyst_type", "News")
                 cat_stars_num = int(round(item.get("catalyst_stars", 1.0)))
-                cat_stars_str = "★" * cat_stars_num + "☆" * (5 - cat_stars_num)
+                cat_stars_str = "&#9733;" * cat_stars_num + "&#9734;" * (5 - cat_stars_num)
                 cat_date_str = item.get("catalyst_date", "—")
                 cat_pill = f'<span class="pill pill-blue">[{cat_cat}]</span> <span style="color: #fbbf24; font-size: 11px;">{cat_stars_str}</span> <span style="color: #94a3b8; font-size: 10.5px; margin-left: 2px;">{cat_date_str}</span>'
                 
@@ -4240,8 +4240,8 @@ class HTMLReportGenerator:
                 tot_color = "#34d399" if tot_d > 0 else ("#f87171" if tot_d < 0 else "#9ca3af")
 
                 score_val = p.get("setup_score", 3.0)
-                score_stars = p.get("stars_visual", "★★★☆☆")
-                score_pill = f'<span class="pill pill-purple" style="font-size: 11px;">{score_stars} {score_val:.1f}★</span>'
+                score_stars = p.get("stars_visual", "&#9733;&#9733;&#9733;&#9734;&#9734;")
+                score_pill = f'<span class="pill pill-purple" style="font-size: 11px;">{score_stars} {score_val:.1f}&#9733;</span>'
 
                 p_chg = p.get("pct_change", day_p)
                 p_chg_pill = f'<span class="pill pill-green">+{p_chg:.2f}%</span>' if p_chg > 0 else (f'<span class="pill pill-red">{p_chg:.2f}%</span>' if p_chg < 0 else f'<span class="pill pill-blue">{p_chg:.2f}%</span>')

@@ -233,7 +233,7 @@ class SetupScorer:
         # Clamp between 1.0 and 5.0
         final_score = round(max(1.0, min(5.0, raw_score)), 1)
         num_stars = int(round(final_score))
-        stars_visual = "?" * num_stars + "?" * (5 - num_stars)
+        stars_visual = "&#9733;" * num_stars + "&#9734;" * (5 - num_stars)
 
         score_breakdown = {
             "base_points": round(base_points, 2),
@@ -250,7 +250,7 @@ class SetupScorer:
         return {
             "score": final_score,
             "stars_visual": stars_visual,
-            "display_str": f"{stars_visual} {final_score:.1f}?",
+            "display_str": f"{stars_visual} {final_score:.1f}&#9733;",
             "has_bullish_gamma": has_bullish_gamma,
             "cw_above_price": cw_above_price,
             "score_breakdown": score_breakdown,

@@ -231,15 +231,18 @@ class PatternDetector:
                 patterns_matched.append("STAGE_2_PULLBACK")
                 preset_tags.append("STAGE_2_PULLBACK")
 
-        # Pattern 6: Market Structure BOS - Arch D
+        # Pattern 6: Market Structure BOS (Break of Structure / Change of Character)
         is_structure_breakup = False
         is_structure_breakdown = False
-        if week_high > 0 and price > week_high and rvol >= 1.35 and is_above_vwap and not is_exhausted:
+        
+        # Valid Swing High/Low: Must be a true multi-day swing structure level, not today's own candle
+        # Requires breaking above 5-day week_high by at least +0.2% with high volume AND close in top 35% of day range
+        if week_high > 0 and price > (week_high * 1.002) and rvol >= 1.45 and close_location_pct >= 65.0 and is_above_vwap and not is_exhausted:
             is_structure_breakup = True
             patterns_matched.append("STRUCTURE_BREAKUP")
             preset_tags.append("STRUCTURE_BOS")
 
-        if (week_low > 0 and price < week_low and rvol >= 1.35) or (sma50_num > 0 and price < sma50_num and yesterday_high >= sma50_num and rvol >= 1.35):
+        if (week_low > 0 and price < (week_low * 0.998) and rvol >= 1.45 and close_location_pct <= 35.0) or (sma50_num > 0 and price < sma50_num and yesterday_high >= sma50_num and rvol >= 1.40):
             is_structure_breakdown = True
             patterns_matched.append("STRUCTURE_BREAKDOWN")
             preset_tags.append("STRUCTURE_BOS")
@@ -280,64 +283,64 @@ class PatternDetector:
 
         # Primary Pattern Resolution
         primary_pattern = "MOMENTUM_RUNNER"
-        badge_label = "? Momentum"
+        badge_label = "⚡ Momentum"
         archetype = "ARCHETYPE_E"
 
         if is_htf:
             primary_pattern = "HIGH_TIGHT_FLAG"
-            badge_label = "?? High Tight Flag"
+            badge_label = "🚩 High Tight Flag"
             archetype = "ARCHETYPE_B"
         elif is_ep_day1:
             primary_pattern = "EP_DAY_1"
-            badge_label = "?? EP Day 1"
+            badge_label = "🔥 EP Day 1"
             archetype = "ARCHETYPE_B"
         elif is_ep_day2:
             primary_pattern = "EP_DAY_2_VWAP"
-            badge_label = "?? EP Day 2 VWAP"
+            badge_label = "🎯 EP Day 2 VWAP"
             archetype = "ARCHETYPE_C"
         elif is_ep_day3:
             primary_pattern = "EP_DAY_3_BREAKOUT"
-            badge_label = "?? EP Day 3 Breakout"
+            badge_label = "🔥 EP Day 3 Breakout"
             archetype = "ARCHETYPE_B"
         elif is_base_breakout:
             primary_pattern = "BASE_BREAKOUT"
-            badge_label = "? Base Breakout"
+            badge_label = "☕ Base Breakout"
             archetype = "ARCHETYPE_A"
         elif is_vcp:
             primary_pattern = "MINERVINI_VCP"
-            badge_label = "?? Minervini VCP" if is_vcp_breakout else "?? VCP Cheat"
+            badge_label = "📉 Minervini VCP" if is_vcp_breakout else "📉 VCP Cheat"
             archetype = "ARCHETYPE_A"
         elif is_stage2_pullback:
             primary_pattern = "STAGE_2_PULLBACK"
-            badge_label = "?? Stage 2 Pullback"
+            badge_label = "📈 Stage 2 Pullback"
             archetype = "ARCHETYPE_C"
         elif is_selling_climax:
             primary_pattern = "SELLING_CLIMAX_BOTTOM"
-            badge_label = "?? Selling Climax"
+            badge_label = "🌊 Selling Climax"
             archetype = "ARCHETYPE_G"
         elif is_buying_climax:
             primary_pattern = "BUYING_CLIMAX_TOP"
-            badge_label = "?? Buying Climax"
+            badge_label = "🌊 Buying Climax"
             archetype = "ARCHETYPE_G"
         elif is_structure_breakup:
             primary_pattern = "STRUCTURE_BREAKUP"
-            badge_label = "? Structure Break"
+            badge_label = "⚡ Structure BOS"
             archetype = "ARCHETYPE_D"
         elif is_structure_breakdown:
             primary_pattern = "STRUCTURE_BREAKDOWN"
-            badge_label = "?? Structure Breakdown"
+            badge_label = "🔻 Structure Breakdown"
             archetype = "ARCHETYPE_D"
         elif is_intraday_velocity:
             primary_pattern = "INTRADAY_VELOCITY"
-            badge_label = "?? Intraday Velocity"
+            badge_label = "🌊 Intraday Velocity"
             archetype = "ARCHETYPE_E"
         elif pct_change >= 3.0 and rvol >= 1.5:
             primary_pattern = "MOMENTUM_RUNNER"
-            badge_label = "?? Momentum Runner"
+            badge_label = "⚡ Momentum Runner"
             archetype = "ARCHETYPE_E"
         else:
             primary_pattern = "TECHNICAL_SETUP"
-            badge_label = "?? Setup"
+            badge_label = "⚡ Setup"
             archetype = "ARCHETYPE_E"
 
         trade_plan = PatternDetector._build_trade_plan(
