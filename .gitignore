@@ -1,4 +1,4 @@
-﻿# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *.class
@@ -18,3 +18,12 @@ ENV/
 # IDE files
 .vscode/
 .idea/
+
+# Binaries & Tooling
+mingit/
+scratch/
+scripts/inject_js.py
+scripts/generate_full_html_generator.py
+scripts/update_html_generator_full.py
+scripts/patch_html_generator_full.py
+scripts/fix_html_template_braces.py

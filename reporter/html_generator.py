@@ -257,6 +257,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="top-navbar">
         <div class="nav-tabs">
             <button class="nav-tab-btn active" id="nav-tab-screener" onclick="switchMainView('screener')">🚀 Screener & Alpha Flow</button>
+            <button class="nav-tab-btn" id="nav-tab-actions" onclick="switchMainView('actions')">🎯 Trade Execution Desk (Actions Tab)</button>
             <button class="nav-tab-btn" id="nav-tab-portfolio" onclick="switchMainView('portfolio')">💼 Portfolio Manager (Live Book)</button>
             <button class="nav-tab-btn" id="nav-tab-macro" onclick="switchMainView('macro')">📊 4D Macro & Allocations</button>
         </div>
@@ -798,6 +799,109 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- VIEW 4: TRADE EXECUTION DESK (ACTIONS TAB) -->
+    <div id="view-actions-section" style="display: none;">
+        <div class="card actions-desk-card">
+            <div class="section-header-row">
+                <div class="section-title">
+                    <span>🎯 Trade Execution Desk &amp; Action Queue</span>
+                    <span style="font-size: 12px; color: #9ca3af; font-weight: normal;">(Real-time setup priority, hard stops, soft stops, trailing exits, and interactive checkboxes for Screener &amp; Portfolio)</span>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn-secondary" onclick="clearCompletedActionDeskTasks()">🧹 Clear Completed</button>
+                    <button class="btn-action" onclick="resetAllActionDeskTasks()">🔄 Reset Checklist</button>
+                </div>
+            </div>
+
+            <!-- Summary KPI Cards -->
+            <div class="actions-summary-grid">
+                <div class="action-stat-box">
+                    <div class="action-stat-title">⚡ Immediate Priority 1 Actions</div>
+                    <div class="action-stat-val" id="actions-p1-count" style="color: #f87171;">{action_p1_count}</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">Urgent entry breakouts &amp; stop breaks</div>
+                </div>
+                <div class="action-stat-box">
+                    <div class="action-stat-title">🚨 Hard Stops / Risk Alerts</div>
+                    <div class="action-stat-val" id="actions-p2-count" style="color: #fbbf24;">{action_p2_count}</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">Portfolio stops &amp; breakdown exits</div>
+                </div>
+                <div class="action-stat-box">
+                    <div class="action-stat-title">🎯 Profit Targets &amp; Trailing</div>
+                    <div class="action-stat-val" id="actions-p3-count" style="color: #34d399;">{action_p3_count}</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">2.0R / 3.5R profit trims &amp; trailing stops</div>
+                </div>
+                <div class="action-stat-box">
+                    <div class="action-stat-title">📋 Execution Progress</div>
+                    <div class="action-stat-val" id="actions-progress-val" style="color: #60a5fa;">0 / {action_total_count} Done</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">Saved locally in browser</div>
+                </div>
+            </div>
+
+            <!-- Action Filters -->
+            <div class="filter-panel" style="margin-bottom: 12px;">
+                <div class="filter-row">
+                    <div class="filter-item">
+                        <span>Priority Tier:</span>
+                        <select id="action-filter-priority" class="filter-select" onchange="filterActionsDesk()">
+                            <option value="ALL" selected>All Priorities (Tiers 1-4)</option>
+                            <option value="TIER1">⚡ Tier 1: Immediate Entry &amp; 3-Day Rule</option>
+                            <option value="TIER2">🚨 Tier 2: Hard Stop Triggered / VCP Setup</option>
+                            <option value="TIER3">🎯 Tier 3: Profit Targets (2R/3.5R)</option>
+                            <option value="TIER4">📈 Tier 4: Trailing Management &amp; Review</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <span>Task Status:</span>
+                        <select id="action-filter-status" class="filter-select" onchange="filterActionsDesk()">
+                            <option value="PENDING" selected>⏳ Pending / Action Required</option>
+                            <option value="DONE">✅ Done / Executed</option>
+                            <option value="SKIPPED">❌ Skipped</option>
+                            <option value="ALL">All Items</option>
+                        </select>
+                    </div>
+                    <div class="filter-item">
+                        <span>Source Desk:</span>
+                        <select id="action-filter-source" class="filter-select" onchange="filterActionsDesk()">
+                            <option value="ALL" selected>All Sources</option>
+                            <option value="SCREENER">🚀 Screener Setups</option>
+                            <option value="PORTFOLIO">💼 Portfolio Risk &amp; Exits</option>
+                        </select>
+                    </div>
+                    <div class="filter-item" style="flex: 1; max-width: 320px;">
+                        <input type="text" class="search-input" id="action-search-input" placeholder="Search action symbol, instruction, setup..." style="width: 100%;" onkeyup="filterActionsDesk()">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions Table -->
+            <div class="table-responsive">
+                <table class="data-table" id="actions-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 75px; text-align: center;">Done / Skip</th>
+                            <th>Priority Tier</th>
+                            <th>Symbol</th>
+                            <th>Desk Source</th>
+                            <th>Setup Archetype</th>
+                            <th>Order Instruction</th>
+                            <th>Entry / Ref Price</th>
+                            <th>Hard Stop ($ / %)</th>
+                            <th>Soft Stop</th>
+                            <th>Target 1 (2.0R)</th>
+                            <th>Target 2 (3.5R)</th>
+                            <th>Trailing Rule</th>
+                            <th>Conviction / Alloc</th>
+                            <th>Time Horizon</th>
+                        </tr>
+                    </thead>
+                    <tbody id="actions-table-tbody">
+                        {action_desk_rows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- VIEW 3: SCREENER & ALPHA INTELLIGENCE VIEW -->
     <div id="view-screener-section">
         <!-- Real-Time Institutional Day Trading Watchlist -->
@@ -810,17 +914,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <span class="pill pill-green" id="day-counter-pill">Showing <span id="day-visible-count">{day_count}</span> of <span id="day-total-count">{day_count}</span> Stocks</span>
             </div>
 
-            <!-- Stockbeep Preset Tab Navigation Bar -->
+            <!-- 9 Consolidated Institutional Master Setup Tabs -->
             <div class="stockbeep-preset-bar" id="preset-bar">
-                <button type="button" class="stockbeep-preset-tab active" id="preset-tab-ALL_SETUPS" data-tooltip="All Setups: Displays all qualified candidates passing liquidity, RVOL, and price filters." onclick="selectStockbeepPreset('ALL_SETUPS')">🌟 All Setups</button>
-                <button type="button" class="stockbeep-preset-tab" id="preset-tab-EP_DAY_1" data-tooltip="Episodic Pivot Day 1: Overnight/day catalyst (Earnings/FDA/M&amp;A) with either Opening Gap% &ge; +7.0% OR Intraday Rally &ge; +4.0% on elevated RVOL &ge; 1.35x." onclick="selectStockbeepPreset('EP_DAY_1')">🔥 EP Day 1</button>
-                <button type="button" class="stockbeep-preset-tab" id="preset-tab-EP_DAY_2" data-tooltip="EP Day 2+ VWAP Touch: Pullback to Day 1 VWAP or 5-SMA within 1–5 days of prior Episodic Pivot on drying volume (&lt; 70% of Day 1) holding Day 1 low." onclick="selectStockbeepPreset('EP_DAY_2')">🎯 EP Day 2+ VWAP</button>
-                <button type="button" class="stockbeep-preset-tab" id="preset-tab-EP_5DAY_DB" data-tooltip="🏛️ 5-Day EP Database Universe: Displays all active Episodic Pivots tracked across Days 1 to 5 stored in the local SQLite database." onclick="selectStockbeepPreset('EP_5DAY_DB')">🏛️ 5-Day EP Universe</button>
-                <button type="button" class="stockbeep-preset-tab" id="preset-tab-MINERVINI_VCP" data-tooltip="Minervini Volatility Contraction Pattern (VCP): Multi-contraction consolidation (&lt; 12% 5-day range) in Stage 2 uptrend (Price &gt; SMA50 &gt; SMA200) breaking out above 5-day consolidation resistance (Price &ge; 5-Day High) on heavy breakout volume (RVOL &ge; 1.40x)." onclick="selectStockbeepPreset('MINERVINI_VCP')">📉 Minervini VCP</button>
-                <button type="button" class="stockbeep-preset-tab" id="preset-tab-MOMENTUM_BURST" data-tooltip="⚡ Momentum Burst: Decisive intraday expansion (&ge; +4.0% from open or prior close) OR psychological round-dollar breakout ($10, $20, $50, $100...) on heavy institutional volume (RVOL &ge; 1.50x)." onclick="selectStockbeepPreset('MOMENTUM_BURST')">⚡ Momentum Burst</button>
-                <button type="button" class="stockbeep-preset-tab" id="preset-tab-V_REVERSAL" data-tooltip="V-Reversal (Intraday Shakeout Reclaim): Morning dip/flush (&le; -1.8% from open/close) that reverses sharply back above VWAP &amp; open into green territory (&ge; +1.5%) on elevated volume (RVOL &ge; 1.25x)." onclick="selectStockbeepPreset('V_REVERSAL')">🔄 V-Reversal</button>
-                <button type="button" class="stockbeep-preset-tab" id="preset-tab-EXTENDED_MOVERS" data-tooltip="Extended Movers / Exhaustion Alert (OR Condition): High mean-reversion risk — Gap &ge; +22%, Daily RSI &gt; 78, price &gt; +35% above SMA50, or &ge; 3 consecutive vertical up-days." onclick="selectStockbeepPreset('EXTENDED_MOVERS')">⚠️ Extended Movers</button>
-                <button type="button" class="stockbeep-preset-tab" id="preset-tab-WHALE_FLOW" data-tooltip="Whale Sweeps: Aggressive institutional orders with single-trade notional premium &ge; $200K to $500K+. Call Wall Magnet: Heavy Call OI strikes within +2% to +8% above spot price, forcing market makers to buy underlying stock to hedge positive delta (gamma acceleration). Bullish Skew: Put/Call Ratio &lt; 0.70 and positive Net Dollar Flow (&gt; $0)." onclick="selectStockbeepPreset('WHALE_FLOW')">🐳 Whale Flow / Gamma</button>
+                <button type="button" class="stockbeep-preset-tab active" id="preset-tab-ALL_SETUPS" data-tooltip="All Setups: Complete screened universe passing liquidity & volume filters." onclick="selectStockbeepPreset('ALL_SETUPS')">🌟 All Setups</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-HIGH_TIGHT_FLAG" data-tooltip="High Tight Flag (HTF): Explosive setup with +75% to +100%+ rapid advance over 4-8 weeks, consolidating tightly (&lt; 20% range) near 52-week highs." onclick="selectStockbeepPreset('HIGH_TIGHT_FLAG')">🚩 High Tight Flag</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-BASE_BREAKOUT" data-tooltip="Base Breakout (Cup &amp; Handle / Base-on-Base): 7-14 week constructive base breaking above pivot on heavy institutional volume." onclick="selectStockbeepPreset('BASE_BREAKOUT')">☕ Base Breakout</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-MINERVINI_VCP" data-tooltip="Minervini VCP &amp; Cheat: Progressive volatility contractions (2-4 contractions) with volume dry-up before the explosive pivot break." onclick="selectStockbeepPreset('MINERVINI_VCP')">📉 Minervini VCP</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-EP_DAY_1" data-tooltip="Episodic Pivot Day 1: High conviction earnings/FDA/M&amp;A catalyst shock, gap &ge; 7%, and monster RVOL &ge; 1.35x." onclick="selectStockbeepPreset('EP_DAY_1')">🔥 EP Day 1</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-EP_DAY_2" data-tooltip="EP Day 2+ VWAP Touch: Orderly pullback to Day 1 VWAP or 5-SMA within Days 2-5 holding prior lows on dry volume." onclick="selectStockbeepPreset('EP_DAY_2')">🎯 EP Day 2+ VWAP</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-STAGE_2_PULLBACK" data-tooltip="Stage 2 Pullback &amp; PEAD: Orderly pullback to rising 10-EMA, 20-SMA or 50-SMA with low volume in confirmed Stage 2 trend." onclick="selectStockbeepPreset('STAGE_2_PULLBACK')">📈 Stage 2 Pullback</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-STRUCTURE_BOS" data-tooltip="Market Structure Break (BOS): Decisive break of multi-day swing highs/lows with volume confirmation." onclick="selectStockbeepPreset('STRUCTURE_BOS')">⚡ Structure BOS</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-INTRADAY_VELOCITY" data-tooltip="Intraday Velocity &amp; ORB: Real-time 5-minute volume spike &ge; 2.5x, ORB breakout, or VWAP spring." onclick="selectStockbeepPreset('INTRADAY_VELOCITY')">🌊 Intraday Velocity</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-CLIMAX_REVERSALS" data-tooltip="Selling Climax Bottom &amp; Buying Climax Top: Statistical extreme oversold/overbought with massive volume absorption." onclick="selectStockbeepPreset('CLIMAX_REVERSALS')">🌊 Climax Reversals</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-WHALE_FLOW" data-tooltip="Whale Flow &amp; Gamma Magnet: Single option sweep orders &ge; $200K, Call Wall magnet headroom, and bullish gamma skew." onclick="selectStockbeepPreset('WHALE_FLOW')">🐳 Whale Flow / Gamma</button>
+                <button type="button" class="stockbeep-preset-tab" id="preset-tab-EXTENDED_MOVERS" data-tooltip="Extended Movers: Overextended moves with gap &ge; 22%, RSI &gt; 80, or extended +35% above 50-SMA." onclick="selectStockbeepPreset('EXTENDED_MOVERS')">⚠️ Extended Movers</button>
             </div>
 
             <!-- Interactive Multi-Factor Filter Bar -->
@@ -1474,32 +1581,39 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function switchMainView(view) {{
         const btnScreener = document.getElementById('nav-tab-screener');
+        const btnActions = document.getElementById('nav-tab-actions');
         const btnPortfolio = document.getElementById('nav-tab-portfolio');
         const btnMacro = document.getElementById('nav-tab-macro');
         
         const secScreener = document.getElementById('view-screener-section');
+        const secActions = document.getElementById('view-actions-section');
         const secPortfolio = document.getElementById('view-portfolio-section');
         const secMacro = document.getElementById('view-macro-section');
 
         if (btnScreener) btnScreener.classList.remove('active');
+        if (btnActions) btnActions.classList.remove('active');
         if (btnPortfolio) btnPortfolio.classList.remove('active');
         if (btnMacro) btnMacro.classList.remove('active');
+
+        if (secScreener) secScreener.style.display = 'none';
+        if (secActions) secActions.style.display = 'none';
+        if (secPortfolio) secPortfolio.style.display = 'none';
+        if (secMacro) secMacro.style.display = 'none';
 
         if (view === 'screener') {{
             if (btnScreener) btnScreener.classList.add('active');
             if (secScreener) secScreener.style.display = 'block';
             if (secMacro) secMacro.style.display = 'block';
-            if (secPortfolio) secPortfolio.style.display = 'none';
+        }} else if (view === 'actions') {{
+            if (btnActions) btnActions.classList.add('active');
+            if (secActions) secActions.style.display = 'block';
+            if (window.filterActionsDesk) window.filterActionsDesk();
         }} else if (view === 'portfolio') {{
             if (btnPortfolio) btnPortfolio.classList.add('active');
             if (secPortfolio) secPortfolio.style.display = 'block';
-            if (secScreener) secScreener.style.display = 'none';
-            if (secMacro) secMacro.style.display = 'none';
         }} else if (view === 'macro') {{
             if (btnMacro) btnMacro.classList.add('active');
             if (secMacro) secMacro.style.display = 'block';
-            if (secScreener) secScreener.style.display = 'none';
-            if (secPortfolio) secPortfolio.style.display = 'none';
         }}
         window.scrollTo({{ top: 0, behavior: 'smooth' }});
     }}
@@ -3362,7 +3476,268 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (searchInput) searchInput.value = '';
         filterDayWatchlist(true);
     }}
+
+    /* -----------------------------------------------------------------
+       Floating Hover Scorecard (Zero-Clipping Calculation Portal)
+       ----------------------------------------------------------------- */
+    function showScorecardHover(event, dataJsonStr) {{
+        const portal = document.getElementById('floating-hover-portal');
+        const content = document.getElementById('hover-portal-content');
+        if (!portal || !content) return;
+
+        try {{
+            const data = typeof dataJsonStr === 'string' ? JSON.parse(dataJsonStr) : dataJsonStr;
+            const sym = data.ticker || data.symbol || 'ASSET';
+            const score = data.score !== undefined ? data.score : (data.setup_score || 3.0);
+            const stars = data.stars_visual || '?????';
+            const archetype = data.archetype || 'ARCHETYPE_E';
+            const pattern = data.primary_pattern || data.pattern_badge || 'Technical Setup';
+            const chk = data.criteria_checklist || {{}};
+            const brk = data.score_breakdown || {{}};
+            const plan = data.trade_plan || {{}};
+            const catHeadline = data.headline || data.catalyst_headline || 'No major headline';
+            const catUrl = data.catalyst_url || '#';
+            const catStars = data.catalyst_stars || 1.0;
+            const catType = data.catalyst_type || 'News';
+            const isExhausted = data.is_exhausted || false;
+            const exDesc = data.exhaustion_desc || '';
+
+            let chkHtml = '';
+            chkHtml += '<div class="hover-row"><span>Stage 2 Trend:</span> <span class="' + (chk.stage2_trend ? 'hover-tag-pass">? Confirmed' : 'hover-tag-fail">? Off-Trend') + '</span></div>';
+            chkHtml += '<div class="hover-row"><span>MA Ribbon (10/20/50):</span> <span class="' + (chk.ma_ribbon ? 'hover-tag-pass">? Bullish Stack' : 'hover-tag-fail">? Mixed') + '</span></div>';
+            chkHtml += '<div class="hover-row"><span>5-Day Range Tightness:</span> <strong>' + (chk.five_day_range_pct !== undefined ? chk.five_day_range_pct + '%' : '?') + '</strong></div>';
+            chkHtml += '<div class="hover-row"><span>Distance to 52W High:</span> <strong>' + (chk.dist_to_52w_high_pct !== undefined ? chk.dist_to_52w_high_pct + '%' : '?') + '</strong></div>';
+            chkHtml += '<div class="hover-row"><span>Session RVOL:</span> <strong style="color: #38bdf8;">' + (chk.rvol !== undefined ? chk.rvol + 'x' : '?') + '</strong></div>';
+            chkHtml += '<div class="hover-row"><span>Intraday Close Loc:</span> <strong>' + (chk.close_location_pct !== undefined ? chk.close_location_pct + '%' : '?') + '</strong></div>';
+
+            let brkHtml = '';
+            brkHtml += '<div class="hover-row"><span>Base Geometry / Contraction:</span> <strong style="color: #34d399;">+' + (brk.base_points || 0).toFixed(2) + '?</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Volume Dry-Up / Surge:</span> <strong style="color: #34d399;">+' + (brk.vol_points || 0).toFixed(2) + '?</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Trend Template Alignment:</span> <strong style="color: #34d399;">+' + (brk.trend_points || 0).toFixed(2) + '?</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Catalyst Shock Impact:</span> <strong style="color: #34d399;">+' + (brk.catalyst_points || 0).toFixed(2) + '?</strong></div>';
+            brkHtml += '<div class="hover-row"><span>Options Gamma / Skew Magnet:</span> <strong style="color: #38bdf8;">+' + (brk.gamma_points || 0).toFixed(2) + '?</strong></div>';
+            brkHtml += '<div class="hover-row"><span>4D Macro Regime Multiplier:</span> <strong style="color: #38bdf8;">+' + (brk.macro_points || 0).toFixed(2) + '?</strong></div>';
+            if (isExhausted) {{
+                brkHtml += '<div class="hover-row" style="color: #f87171;"><span>Exhaustion Penalty:</span> <strong>-' + (brk.exhaustion_penalty || 0).toFixed(2) + '?</strong></div>';
+            }}
+
+            let planHtml = '';
+            planHtml += '<div class="hover-row"><span>Entry Pivot:</span> <strong style="color: #34d399;">$' + (plan.entry_pivot || 0).toFixed(2) + '</strong></div>';
+            planHtml += '<div class="hover-row"><span>Hard Stop:</span> <strong style="color: #f87171;">$' + (plan.hard_stop || 0).toFixed(2) + ' (' + (plan.stop_dist_pct || 0).toFixed(1) + '%)</strong></div>';
+            planHtml += '<div class="hover-row"><span>Soft Stop:</span> <span style="font-size: 11px; color: #cbd5e1;">' + (plan.soft_stop_desc || 'VWAP loss') + '</span></div>';
+            planHtml += '<div class="hover-row"><span>Target 1 (2.0R):</span> <strong style="color: #38bdf8;">$' + (plan.target_1 || 0).toFixed(2) + ' (+' + (plan.target_1_pct || 0).toFixed(1) + '%)</strong></div>';
+            planHtml += '<div class="hover-row"><span>Target 2 (3.5R):</span> <strong style="color: #60a5fa;">$' + (plan.target_2 || 0).toFixed(2) + ' (+' + (plan.target_2_pct || 0).toFixed(1) + '%)</strong></div>';
+            planHtml += '<div class="hover-row"><span>Trailing Rule:</span> <span style="font-size: 11px; color: #a78bfa;">' + (plan.trailing_desc || 'Trailing 20-SMA') + '</span></div>';
+            planHtml += '<div class="hover-row"><span>Conviction Mult:</span> <strong>' + (plan.conviction_mult || 1.0).toFixed(2) + 'x</strong></div>';
+
+            let catHtml = '';
+            catHtml += '<div style="margin-bottom: 4px;"><span class="pill pill-blue">[' + catType + ']</span> <span style="color: #fbbf24; font-weight: bold;">' + '?'.repeat(Math.min(5, Math.max(1, Math.round(catStars)))) + '</span></div>';
+            catHtml += '<div style="font-size: 11.5px; margin-bottom: 4px;"><a href="' + catUrl + '" target="_blank" style="color: #93c5fd; text-decoration: none;">' + catHeadline + '</a></div>';
+
+            let html = '';
+            html += '<div class="hover-card-title"><span>?? ' + sym + ' ? Diagnostic Scorecard</span> <span style="color: #a78bfa;">' + stars + ' ' + score.toFixed(1) + '?</span></div>';
+            if (isExhausted) {{
+                html += '<div style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; font-size: 11px; color: #fca5a5;">' + exDesc + '</div>';
+            }}
+            html += '<div class="hover-section"><div class="hover-section-header"><span>?? 1. Setup Criteria Checklist</span><span>' + pattern + '</span></div>' + chkHtml + '</div>';
+            html += '<div class="hover-section"><div class="hover-section-header"><span>?? 2. Bespoke Score Breakdown Math</span><span>' + archetype + '</span></div>' + brkHtml + '</div>';
+            html += '<div class="hover-section"><div class="hover-section-header"><span>?? 3. Institutional Trade Plan & Execution</span><span>R:R 2.0R/3.5R</span></div>' + planHtml + '</div>';
+            html += '<div class="hover-section"><div class="hover-section-header"><span>?? 4. Catalyst & News Intelligence</span></div>' + catHtml + '</div>';
+
+            content.innerHTML = html;
+            portal.style.display = 'block';
+
+            // Viewport Zero-Clipping Positioning
+            const portalWidth = 440;
+            const portalHeight = portal.offsetHeight || 500;
+            const padding = 14;
+
+            let x = event.clientX + 18;
+            let y = event.clientY - 30;
+
+            if (x + portalWidth > window.innerWidth - padding) {{
+                x = event.clientX - portalWidth - 18;
+            }}
+            if (x < padding) {{
+                x = padding;
+            }}
+
+            if (y + portalHeight > window.innerHeight - padding) {{
+                y = window.innerHeight - portalHeight - padding;
+            }}
+            if (y < padding) {{
+                y = padding;
+            }}
+
+            portal.style.left = x + 'px';
+            portal.style.top = y + 'px';
+        }} catch (err) {{
+            console.error('Hover scorecard error:', err);
+        }}
+    }}
+
+    function hideScorecardHover() {{
+        const portal = document.getElementById('floating-hover-portal');
+        if (portal) portal.style.display = 'none';
+    }}
+
+    /* -----------------------------------------------------------------
+       Trade Execution Desk (Actions Tab) Interactive Checkbox & Filter Engine
+       ----------------------------------------------------------------- */
+    function getActionDeskState() {{
+        try {{
+            return JSON.parse(localStorage.getItem('screener_action_desk_state') || '{{}}');
+        }} catch (e) {{
+            return {{}};
+        }}
+    }}
+
+    function saveActionDeskState(state) {{
+        try {{
+            localStorage.setItem('screener_action_desk_state', JSON.stringify(state));
+        }} catch (e) {{}}
+    }}
+
+    function toggleActionItemDone(actionId, isDone) {{
+        const state = getActionDeskState();
+        if (!state[actionId]) state[actionId] = {{}};
+        state[actionId].done = isDone;
+        if (isDone) state[actionId].skipped = false;
+        saveActionDeskState(state);
+        applyActionDeskRowStyles(actionId);
+        updateActionDeskProgress();
+    }}
+
+    function toggleActionItemSkip(actionId, isSkip) {{
+        const state = getActionDeskState();
+        if (!state[actionId]) state[actionId] = {{}};
+        state[actionId].skipped = isSkip;
+        if (isSkip) state[actionId].done = false;
+        saveActionDeskState(state);
+        applyActionDeskRowStyles(actionId);
+        updateActionDeskProgress();
+    }}
+
+    function applyActionDeskRowStyles(actionId) {{
+        const state = getActionDeskState();
+        const tr = document.getElementById('action-row-' + actionId);
+        const chkDone = document.getElementById('chk-done-' + actionId);
+        const chkSkip = document.getElementById('chk-skip-' + actionId);
+        if (!tr) return;
+
+        const isDone = state[actionId] && state[actionId].done;
+        const isSkip = state[actionId] && state[actionId].skipped;
+
+        if (chkDone) chkDone.checked = Boolean(isDone);
+        if (chkSkip) chkSkip.checked = Boolean(isSkip);
+
+        tr.classList.remove('action-row-done', 'action-row-skip');
+        if (isDone) {{
+            tr.classList.add('action-row-done');
+        }} else if (isSkip) {{
+            tr.classList.add('action-row-skip');
+        }}
+    }}
+
+    function filterActionsDesk() {{
+        const priorityFilter = document.getElementById('action-filter-priority') ? document.getElementById('action-filter-priority').value : 'ALL';
+        const statusFilter = document.getElementById('action-filter-status') ? document.getElementById('action-filter-status').value : 'PENDING';
+        const sourceFilter = document.getElementById('action-filter-source') ? document.getElementById('action-filter-source').value : 'ALL';
+        const query = document.getElementById('action-search-input') ? document.getElementById('action-search-input').value.toLowerCase().trim() : '';
+
+        const state = getActionDeskState();
+        const rows = document.querySelectorAll('#actions-table-tbody tr');
+
+        rows.forEach(r => {{
+            const actionId = r.getAttribute('data-action-id') || '';
+            const prio = r.getAttribute('data-priority') || '';
+            const source = r.getAttribute('data-source') || '';
+            const isDone = Boolean(state[actionId] && state[actionId].done);
+            const isSkip = Boolean(state[actionId] && state[actionId].skipped);
+
+            // Apply checkbox styles
+            applyActionDeskRowStyles(actionId);
+
+            let visible = true;
+            if (priorityFilter !== 'ALL' && prio !== priorityFilter) visible = false;
+            if (sourceFilter !== 'ALL' && source !== sourceFilter) visible = false;
+
+            if (statusFilter === 'PENDING' && (isDone || isSkip)) visible = false;
+            if (statusFilter === 'DONE' && !isDone) visible = false;
+            if (statusFilter === 'SKIPPED' && !isSkip) visible = false;
+
+            if (query && !r.innerText.toLowerCase().includes(query)) visible = false;
+
+            r.style.display = visible ? '' : 'none';
+        }});
+
+        updateActionDeskProgress();
+    }}
+
+    function updateActionDeskProgress() {{
+        const state = getActionDeskState();
+        const rows = document.querySelectorAll('#actions-table-tbody tr');
+        let total = rows.length;
+        let doneCount = 0;
+        let skipCount = 0;
+        let p1Count = 0;
+        let p2Count = 0;
+        let p3Count = 0;
+
+        rows.forEach(r => {{
+            const actionId = r.getAttribute('data-action-id') || '';
+            const prio = r.getAttribute('data-priority') || '';
+            const isDone = Boolean(state[actionId] && state[actionId].done);
+            const isSkip = Boolean(state[actionId] && state[actionId].skipped);
+
+            if (isDone) doneCount++;
+            if (isSkip) skipCount++;
+
+            if (!isDone && !isSkip) {{
+                if (prio === 'TIER1') p1Count++;
+                if (prio === 'TIER2') p2Count++;
+                if (prio === 'TIER3') p3Count++;
+            }}
+        }});
+
+        const p1El = document.getElementById('actions-p1-count');
+        if (p1El) p1El.innerText = p1Count;
+        const p2El = document.getElementById('actions-p2-count');
+        if (p2El) p2El.innerText = p2Count;
+        const p3El = document.getElementById('actions-p3-count');
+        if (p3El) p3El.innerText = p3Count;
+
+        const progEl = document.getElementById('actions-progress-val');
+        if (progEl) progEl.innerText = doneCount + ' / ' + total + ' Done (' + skipCount + ' Skipped)';
+    }}
+
+    function clearCompletedActionDeskTasks() {{
+        if (!confirm('Mark all currently pending action items as Done?')) return;
+        const state = getActionDeskState();
+        const rows = document.querySelectorAll('#actions-table-tbody tr');
+        rows.forEach(r => {{
+            const actionId = r.getAttribute('data-action-id') || '';
+            if (!state[actionId]) state[actionId] = {{}};
+            state[actionId].done = true;
+            state[actionId].skipped = false;
+        }});
+        saveActionDeskState(state);
+        filterActionsDesk();
+    }}
+
+    function resetAllActionDeskTasks() {{
+        if (!confirm('Reset all action checklist progress?')) return;
+        localStorage.removeItem('screener_action_desk_state');
+        filterActionsDesk();
+    }}
+
 </script>
+
+    <!-- Floating Zero-Clipping Hover Scorecard Portal -->
+    <div id="floating-hover-portal">
+        <div id="hover-portal-content"></div>
+    </div>
+
 </body>
 </html>
 """
@@ -3503,6 +3878,163 @@ class HTMLReportGenerator:
                 sectors_set.add(p.get("sector"))
         sector_options_html = "".join([f'<option value="{s}">{s}</option>' for s in sorted(sectors_set) if s and s != "General"])
 
+        # -------------------------------------------------------------
+        # 0. Build Trade Execution Desk (Actions Tab) Items
+        # -------------------------------------------------------------
+        action_desk_items = []
+        for idx, item in enumerate(day_watchlist):
+            p_info = item.get("pattern_info", {})
+            plan = item.get("trade_plan", {}) or p_info.get("trade_plan", {})
+            chk = item.get("criteria_checklist", {}) or p_info.get("criteria_checklist", {})
+            sym = item.get("ticker", "")
+            cur_p = item.get("price", 0.0)
+            score = item.get("setup_score", 3.0)
+            prim = p_info.get("primary_pattern", item.get("primary_pattern", "MOMENTUM_RUNNER"))
+            badge = p_info.get("badge_label", item.get("pattern_badge", "⚡ Momentum"))
+            
+            is_p1 = bool(item.get("breakout_last_high") or item.get("pct_from_open", 0.0) >= 2.0 or p_info.get("is_ep_day1") or p_info.get("is_selling_climax"))
+            is_p2 = bool(p_info.get("is_vcp") or p_info.get("is_htf") or p_info.get("is_base_breakout"))
+            is_p3 = bool(p_info.get("is_stage2_pullback") or p_info.get("is_ep_day2") or score >= 4.0)
+
+            prio_code = "TIER1" if is_p1 else ("TIER2" if is_p2 else ("TIER3" if is_p3 else "TIER4"))
+            prio_badge = '<span class="badge-priority badge-p1">⚡ Tier 1: Immediate Entry</span>' if prio_code == "TIER1" else (
+                '<span class="badge-priority badge-p2">🎯 Tier 2: Setup Anticipation</span>' if prio_code == "TIER2" else (
+                    '<span class="badge-priority badge-p3">📈 Tier 3: Pullback Watch</span>' if prio_code == "TIER3" else '<span class="badge-priority badge-p4">📊 Tier 4: Watchlist</span>'
+                )
+            )
+
+            order_inst = f"BUY STOP-LIMIT @ ${plan.get('entry_pivot', cur_p):.2f}" if not plan.get("is_short") else f"SELL SHORT STOP @ ${plan.get('entry_pivot', cur_p):.2f}"
+            sz = item.get("sizing", {})
+            sz_str = f"{sz.get('shares', 0):,} shs (${sz.get('capital_required', 0.0):,.0f})" if sz.get("shares") else "—"
+
+            action_desk_items.append({
+                "action_id": f"scr_{sym}_{idx}",
+                "priority_code": prio_code,
+                "priority_badge": prio_badge,
+                "symbol": sym,
+                "source": "SCREENER",
+                "source_badge": '<span class="pill pill-blue">🚀 Screener</span>',
+                "archetype_badge": f'<span class="pill pill-purple">{badge}</span>',
+                "order_instruction": f"<strong>{order_inst}</strong>",
+                "entry_price": f"${plan.get('entry_pivot', cur_p):.2f}",
+                "hard_stop": f"<strong style='color: #f87171;'>${plan.get('hard_stop', cur_p*0.96):.2f}</strong> ({plan.get('stop_dist_pct', 4.0):.1f}%)",
+                "soft_stop": f"<span style='font-size: 11px; color: #94a3b8;'>{plan.get('soft_stop_desc', 'VWAP loss')}</span>",
+                "target_1": f"<strong style='color: #34d399;'>${plan.get('target_1', cur_p*1.08):.2f}</strong> (+{plan.get('target_1_pct', 8.0):.1f}%)",
+                "target_2": f"<strong style='color: #60a5fa;'>${plan.get('target_2', cur_p*1.14):.2f}</strong> (+{plan.get('target_2_pct', 14.0):.1f}%)",
+                "trailing": f"<span style='font-size: 11px; color: #a78bfa;'>{plan.get('trailing_desc', 'Trailing 20-SMA')}</span>",
+                "sizing": sz_str,
+                "time_horizon": f"{plan.get('time_stop_days', 5)} Days (Swing)",
+                "json_data": json.dumps({
+                    "ticker": sym,
+                    "score": score,
+                    "stars_visual": item.get("stars_visual", "★★★☆☆"),
+                    "archetype": p_info.get("archetype", "ARCHETYPE_E"),
+                    "primary_pattern": prim,
+                    "pattern_badge": badge,
+                    "criteria_checklist": chk,
+                    "score_breakdown": item.get("score_breakdown", {}),
+                    "trade_plan": plan,
+                    "headline": item.get("headline", ""),
+                    "catalyst_url": item.get("catalyst_url", "#"),
+                    "catalyst_stars": item.get("catalyst_stars", 1.0),
+                    "catalyst_type": item.get("catalyst_type", "News"),
+                    "is_exhausted": item.get("is_exhausted", False),
+                    "exhaustion_desc": item.get("exhaustion_desc", "")
+                }).replace('"', '&quot;')
+            })
+
+        for p_idx, p in enumerate(portfolio_data.get("positions", [])):
+            sym = p.get("symbol", "")
+            underlying = p.get("underlying") or sym
+            last_p = p.get("last_price", 0.0)
+            stop_l = p.get("stop_loss", round(last_p * 0.96, 2))
+            targ_p = p.get("target_price", round(last_p * 1.15, 2))
+            qty = p.get("quantity", 0.0)
+            streak = p.get("streak_count", 0)
+            day_p = p.get("today_pnl_pct", 0.0)
+
+            if stop_l > 0 and last_p <= stop_l:
+                prio_code = "TIER2"
+                prio_badge = '<span class="badge-priority badge-p1">🚨 Hard Stop Triggered</span>'
+                order_inst = f"<strong style='color: #f87171;'>SELL STOP EXIT ALL ({qty:,.0f} shs @ ${last_p:.2f})</strong>"
+            elif targ_p > 0 and last_p >= targ_p:
+                prio_code = "TIER3"
+                prio_badge = '<span class="badge-priority badge-p3">🎯 Target 1 (2R) Reached</span>'
+                order_inst = f"<strong style='color: #34d399;'>TRIM 50% PROFIT ({qty/2:,.0f} shs @ ${last_p:.2f})</strong>"
+            elif streak >= 3 and day_p < 0:
+                prio_code = "TIER1"
+                prio_badge = '<span class="badge-priority badge-p1">⚡ 3-Day Rule Down Exit</span>'
+                order_inst = f"<strong style='color: #fbbf24;'>TRIM 50% on First Down Day ({qty/2:,.0f} shs)</strong>"
+            else:
+                prio_code = "TIER4"
+                prio_badge = '<span class="badge-priority badge-p4">📈 Trailing Stop Hold</span>'
+                order_inst = f"HOLD & TRAIL Stop @ ${stop_l:.2f}"
+
+            action_desk_items.append({
+                "action_id": f"port_{sym}_{p_idx}",
+                "priority_code": prio_code,
+                "priority_badge": prio_badge,
+                "symbol": sym,
+                "source": "PORTFOLIO",
+                "source_badge": '<span class="pill pill-green">💼 Portfolio</span>',
+                "archetype_badge": f'<span class="pill pill-purple">{p.get("strategy_tag", "Holding")}</span>',
+                "order_instruction": order_inst,
+                "entry_price": f"${p.get('average_cost', last_p):.2f}",
+                "hard_stop": f"<strong style='color: #f87171;'>${stop_l:.2f}</strong>",
+                "soft_stop": "<span style='font-size: 11px; color: #94a3b8;'>Daily close below 20-SMA</span>",
+                "target_1": f"<strong style='color: #34d399;'>${targ_p:.2f}</strong>",
+                "target_2": f"<strong style='color: #60a5fa;'>${targ_p*1.10:.2f}</strong>",
+                "trailing": "<span style='font-size: 11px; color: #a78bfa;'>Trailing 20-SMA</span>",
+                "sizing": f"{qty:,.0f} shs (${qty*last_p:,.0f})",
+                "time_horizon": "Core Book",
+                "json_data": json.dumps({
+                    "ticker": sym,
+                    "score": p.get("setup_score", 3.5),
+                    "stars_visual": p.get("stars_visual", "★★★☆☆"),
+                    "archetype": "PORTFOLIO_HOLDING",
+                    "primary_pattern": p.get("strategy_tag", "Core Holding"),
+                    "pattern_badge": p.get("strategy_tag", "Core Holding"),
+                    "criteria_checklist": {"stage2_trend": True, "ma_ribbon": True},
+                    "score_breakdown": {"base_points": 2.0, "trend_points": 1.5},
+                    "trade_plan": {"entry_pivot": p.get("average_cost", last_p), "hard_stop": stop_l, "target_1": targ_p},
+                    "headline": p.get("headline", p.get("description", "Open portfolio position")),
+                    "catalyst_url": p.get("catalyst_url", "#"),
+                    "catalyst_stars": p.get("catalyst_stars", 3.0),
+                    "catalyst_type": p.get("catalyst_type", "Holding"),
+                    "is_exhausted": False
+                }).replace('"', '&quot;')
+            })
+
+        action_desk_rows_html = []
+        action_p1_count = sum(1 for a in action_desk_items if a["priority_code"] == "TIER1")
+        action_p2_count = sum(1 for a in action_desk_items if a["priority_code"] == "TIER2")
+        action_p3_count = sum(1 for a in action_desk_items if a["priority_code"] == "TIER3")
+        action_total_count = len(action_desk_items)
+
+        for a in action_desk_items:
+            action_id = a["action_id"]
+            action_desk_rows_html.append(f"""
+            <tr class="data-row" id="action-row-{action_id}" data-action-id="{action_id}" data-priority="{a['priority_code']}" data-source="{a['source']}">
+                <td style="text-align: center; white-space: nowrap;">
+                    <input type="checkbox" id="chk-done-{action_id}" class="chk-action-desk" title="Mark Done" onchange="toggleActionItemDone('{action_id}', this.checked)">
+                    <input type="checkbox" id="chk-skip-{action_id}" class="chk-action-skip" title="Skip Task" onchange="toggleActionItemSkip('{action_id}', this.checked)">
+                </td>
+                <td>{a['priority_badge']}</td>
+                <td><a class="ticker-link" href="https://finance.yahoo.com/quote/{a['symbol']}" target="_blank" onmouseenter="showScorecardHover(event, '{a['json_data']}')" onmouseleave="hideScorecardHover()">{a['symbol']}</a></td>
+                <td>{a['source_badge']}</td>
+                <td>{a['archetype_badge']}</td>
+                <td>{a['order_instruction']}</td>
+                <td><strong>{a['entry_price']}</strong></td>
+                <td>{a['hard_stop']}</td>
+                <td>{a['soft_stop']}</td>
+                <td>{a['target_1']}</td>
+                <td>{a['target_2']}</td>
+                <td>{a['trailing']}</td>
+                <td><strong>{a['sizing']}</strong></td>
+                <td><span class="pill pill-blue" style="font-size: 10px;">{a['time_horizon']}</span></td>
+            </tr>
+            """)
+
         # 1. Day Trading Watchlist Rows & Accordion Drawers
         day_rows_html = []
         if day_watchlist:
@@ -3516,7 +4048,27 @@ class HTMLReportGenerator:
                 badge_html = f'<span class="pill pill-purple" style="font-size: 10px; margin-top: 2px; display: inline-block;">{badge_str}</span>'
                 if item.get('is_exhausted'):
                     badge_html += f'<div style="color: #f59e0b; font-size: 9.5px; font-weight: 700; margin-top: 2px;">⚠️ Extended</div>'
-                score_pill = f'<span class="pill pill-purple" style="font-size: 11px;">{item.get("stars_visual", "★★★☆☆")} {score_val:.1f}★</span><br>{badge_html}'
+                
+                # Build JSON payload for floating hover scorecard
+                item_hover_payload = json.dumps({
+                    "ticker": item.get("ticker", ""),
+                    "score": score_val,
+                    "stars_visual": item.get("stars_visual", "★★★☆☆"),
+                    "archetype": item.get("pattern_info", {}).get("archetype", "ARCHETYPE_E"),
+                    "primary_pattern": item.get("primary_pattern", "MOMENTUM_RUNNER"),
+                    "pattern_badge": badge_str,
+                    "criteria_checklist": item.get("criteria_checklist", {}),
+                    "score_breakdown": item.get("score_breakdown", {}),
+                    "trade_plan": item.get("trade_plan", {}),
+                    "headline": item.get("headline", ""),
+                    "catalyst_url": item.get("catalyst_url", "#"),
+                    "catalyst_stars": item.get("catalyst_stars", 1.0),
+                    "catalyst_type": item.get("catalyst_type", "News"),
+                    "is_exhausted": item.get("is_exhausted", False),
+                    "exhaustion_desc": item.get("exhaustion_desc", "")
+                }).replace('"', '&quot;')
+
+                score_pill = f'<div style="cursor: pointer;" onmouseenter="showScorecardHover(event, \'{item_hover_payload}\')" onmouseleave="hideScorecardHover()"><span class="pill pill-purple" style="font-size: 11px;">{item.get("stars_visual", "★★★☆☆")} {score_val:.1f}★</span><br>{badge_html}</div>'
 
                 p_open = item.get("pct_from_open", 0.0)
                 p_open_color = "#34d399" if p_open > 0 else ("#f87171" if p_open < 0 else "#9ca3af")
@@ -4182,6 +4734,11 @@ class HTMLReportGenerator:
             analyst_count=len(analyst_actions),
             options_agg_count=len(options_aggregated),
             whale_lookup_json=json.dumps({agg["ticker"]: agg.get("whale_trades", []) for agg in options_aggregated}),
+            action_p1_count=action_p1_count,
+            action_p2_count=action_p2_count,
+            action_p3_count=action_p3_count,
+            action_total_count=action_total_count,
+            action_desk_rows="".join(action_desk_rows_html),
             day_trading_rows="".join(day_rows_html),
             economic_calendar_rows="".join(eco_rows_html),
             earnings_calendar_rows="".join(earn_rows_html),

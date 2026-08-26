@@ -758,11 +758,15 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
         item["setup_score"] = score_dict["score"]
         item["setup_score_display"] = score_dict["display_str"]
         item["stars_visual"] = score_dict["stars_visual"]
+        item["score_breakdown"] = score_dict.get("score_breakdown", {})
+        item["trade_plan"] = score_dict.get("trade_plan", {}) or (item.get("pattern_info", {}).get("trade_plan", {}))
+        item["criteria_checklist"] = score_dict.get("criteria_checklist", {}) or (item.get("pattern_info", {}).get("criteria_checklist", {}))
 
-        # Compute Dynamic ATR-Parity Position Sizing with Gamma Gating & Exhaustion Limit
+        # Compute Dynamic ATR-Parity Position Sizing with Gamma Gating, Conviction Multiplier & Exhaustion Limit
         macro_mult = macro_data.get("composite_multiplier", 0.95)
         flow_fac = item.get("flow_sizing_factor", 1.00)
-        stop_level = round(cur_price * 0.96, 2)
+        pattern_mult = item.get("trade_plan", {}).get("conviction_mult", 1.00)
+        stop_level = item.get("trade_plan", {}).get("hard_stop", round(cur_price * 0.96, 2))
         has_gamma = score_dict.get("has_bullish_gamma") or score_dict.get("cw_above_price")
         
         sizing = setup_scorer.calculate_position_size(
@@ -772,6 +776,7 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
             stop_loss=stop_level,
             macro_multiplier=macro_mult,
             flow_factor=flow_fac,
+            pattern_multiplier=pattern_mult,
             has_gamma_alignment=bool(has_gamma),
             is_exhausted=item.get("is_exhausted", False)
         )
