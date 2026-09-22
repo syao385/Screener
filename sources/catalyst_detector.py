@@ -33,8 +33,8 @@ FLUFF_PATTERNS = [
 TIER1_PATTERNS = [
     (r"\b(fda approval|fda approves|cleared by fda|breakthrough therapy|phase 3|primary endpoint)\b", "FDA Approval", 5.0),
     (r"\b(acquired by|to acquire|to be acquired|acquisition of|merger agreement|buyout offer|takeover)\b", "M&A / Buyout", 5.0),
-    (r"\b(beat(s)? (and|&) raise|eps beat|revenue beat|beats on earnings|blowout quarter|raises (fy|full-year) guidance|record (quarterly|annual) revenue)\b", "Earnings Beat & Raise", 5.0),
-    (r"\b(reports (q[1-4]|quarterly|full-year) (results|earnings|net income|profit)|q[1-4] earnings release|q[1-4] net income (rises|jumps|surges)|q[1-4] profit beats)\b", "Earnings Release", 4.5),
+    (r"\b(beat(s)? (and|&) raise|eps beat|revenue beat|beats on earnings|blowout quarter|raises (fy|full-year|annual|profit)?\s*(guidance|outlook)|record (quarterly|annual) revenue|best day .* after earnings|(soars|jumps|surges|rallies|pops) (after|following|on)\s+(q[1-4]\s+|quarterly\s+)?(earnings|results)|earnings\s+(beat|surprise|crush|blowout|surge)|(beat|beats|beating|top|tops|topping|crush|crushes)\s+(earnings|eps|revenue|estimates|expectations|street))\b", "Earnings Beat & Raise", 5.0),
+    (r"\b((after|following|post|on)\s+earnings|(reports|posts|delivers|announces)\s+(fiscal\s+)?(q[1-4]\s+|quarterly\s+|full-year\s+)?(results|earnings|profit|net income|revenue)|(q[1-4]|quarterly|full-year)\s+(earnings|results|profit|revenue)\s+(beat|top|surge|rise|jump|crush|soar)|(fiscal\s+)?q[1-4]\s+earnings(\s+snapshot|\s+release)?|(q[1-4]|quarterly)\s+net\s+income\s+(rises|jumps|surges)|(q[1-4]|quarterly)\s+profit\s+beats|(swings|swinging)\s+to\s+(quarterly\s+)?profit)\b", "Earnings Release", 4.5),
 ]
 
 # Earnings Preview / Anticipation Patterns (2.0★) - Previews, calendars, and expectations before the event
@@ -223,16 +223,16 @@ class CatalystDetector:
         # 6. Headline does not mention or relate to this ticker at all -> Discard
         return ("Unrelated", 0.0, clean_hl, url, False)
 
-    def detect_catalyst(self, ticker: str, company_name: str = "") -> Tuple[str, float, str, str, bool, str]:
+    def detect_catalyst(self, ticker: str, company_name: str = "", earnings_date: str = "") -> Tuple[str, float, str, str, bool, str]:
         """
         Detect and arbitrate the best catalyst across Yahoo Finance, Finviz, and SEC/Earnings.
         Returns: (category, stars, headline, url, is_positive, date_str)
         """
         clean_sym = ticker.split(":")[-1] if ":" in ticker else ticker
-        cache_key = f"{clean_sym}_{company_name}"
+        cache_key = f"{clean_sym}_{company_name}_{earnings_date}"
         if cache_key in self._cache:
             return self._cache[cache_key]
-        if clean_sym in self._cache:
+        if clean_sym in self._cache and not earnings_date:
             return self._cache[clean_sym]
 
         # Fast bypass for ETFs and index tracking funds
@@ -263,23 +263,34 @@ class CatalystDetector:
             cutoff_date = today_est - datetime.timedelta(days=1)
 
         # 1. Check in-memory Earnings Calendar
+        has_confirmed_earnings = False
+        earn_date_label = ""
         try:
             from sources.earnings_calendar import earnings_cal
-            full_earn = earnings_cal.get_full_calendar()
+            full_earn = earnings_cal.get_earnings_dashboard() if hasattr(earnings_cal, "get_earnings_dashboard") else earnings_cal.get_full_calendar()
             for k in ("today_bmo", "today_amc", "yesterday_amc"):
                 for row in full_earn.get(k, []):
                     if row.get("ticker") == clean_sym:
-                        earn_date_str = f"{today_est.strftime('%b %d')} (Today)" if "today" in k else (today_est - datetime.timedelta(days=1)).strftime("%b %d")
-                        candidate_catalysts.append((
-                            "Earnings Release",
-                            5.0,
-                            f"Official Earnings Report filed ({earn_date_str})",
-                            f"https://finance.yahoo.com/quote/{clean_sym}",
-                            True,
-                            earn_date_str
-                        ))
+                        has_confirmed_earnings = True
+                        earn_date_label = f"{today_est.strftime('%b %d')} (Today)" if "today" in k else (today_est - datetime.timedelta(days=1)).strftime("%b %d")
+                        break
+                if has_confirmed_earnings:
+                    break
         except Exception as e:
             logger.debug(f"Error checking in-memory earnings for {clean_sym}: {e}")
+
+        # Also check passed earnings_date (e.g. "Sep 09 b", "Sep 08 a", "Sep 09 (Today)")
+        if earnings_date and earnings_date != "—":
+            today_month_day = today_est.strftime("%b %d")
+            yest_month_day = (today_est - datetime.timedelta(days=1)).strftime("%b %d")
+            if today_month_day in earnings_date or "Today" in earnings_date:
+                has_confirmed_earnings = True
+                if not earn_date_label:
+                    earn_date_label = f"{today_month_day} (Today)"
+            elif yest_month_day in earnings_date or "yesterday" in str(earnings_date).lower():
+                has_confirmed_earnings = True
+                if not earn_date_label:
+                    earn_date_label = yest_month_day
 
         # 2. Check Yahoo Finance News Stream (PR Newswire / BusinessWire / Reuters)
         try:
@@ -327,9 +338,93 @@ class CatalystDetector:
                             pub_str = pub_dt.strftime("%b %d")
                             if pub_dt.date() == today_est:
                                 pub_str = f"{pub_dt.strftime('%b %d')} (Today)"
-                            candidate_catalysts.append((scored[0], scored[1], scored[2], scored[3], scored[4], pub_str))
+                            
+                            c_cat, c_stars, c_hl, c_url, c_pos = scored
+                            # If company had confirmed earnings today/yesterday and headline discusses earnings or strong performance
+                            if has_confirmed_earnings and c_pos:
+                                hl_lower = c_hl.lower()
+                                if any(w in hl_lower for w in ["earnings", "results", "quarter", "q1", "q2", "q3", "q4", "profit", "net income"]):
+                                    if any(w in hl_lower for w in ["beat", "raise", "best day", "surge", "jump", "soar", "top", "rally", "pops"]):
+                                        c_cat = "Earnings Beat & Raise"
+                                        c_stars = 5.0
+                                    else:
+                                        c_cat = "Earnings Release"
+                                        c_stars = max(c_stars, 4.5)
+
+                            candidate_catalysts.append((c_cat, c_stars, c_hl, c_url, c_pos, pub_str))
         except Exception as e:
             logger.debug(f"Error checking Yahoo news for {clean_sym}: {e}")
+
+        # 3. Check Finviz News Stream (Fallback when Yahoo News lacks Tier-1 events; skip on weekends to prevent 429 rate limits)
+        if (now_est.weekday() < 5) and (not candidate_catalysts or not any(c[1] >= 4.0 for c in candidate_catalysts)):
+            try:
+                resp = resilient_session.get(f"https://finviz.com/quote.ashx?t={clean_sym}", timeout=5)
+                if resp and resp.status_code == 200:
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    news_table = soup.find("table", id="news-table") or soup.find("table", class_="fullview-news-outer")
+                    if news_table:
+                        last_seen_date = today_est
+                        for tr in news_table.find_all("tr")[:10]:
+                            a_tag = tr.find("a")
+                            td_date = tr.find("td")
+                            if not a_tag:
+                                continue
+                            f_title = a_tag.text.strip()
+                            f_link = a_tag.get("href", "")
+                            if f_link.startswith("/"):
+                                f_link = f"https://finviz.com{f_link}"
+                            
+                            d_text = td_date.text.strip() if td_date else ""
+                            is_today = "today" in d_text.lower() or len(d_text.split()) == 1
+                            is_recent = is_today
+                            if not is_today and "-" in d_text:
+                                try:
+                                    f_d_part = d_text.split()[0]
+                                    parsed_d = datetime.datetime.strptime(f_d_part, "%b-%d-%y").date()
+                                    last_seen_date = parsed_d
+                                    is_recent = parsed_d >= cutoff_date
+                                except Exception:
+                                    is_recent = False
+                            elif not is_today:
+                                is_recent = last_seen_date >= cutoff_date
+
+                            if is_recent and f_title:
+                                scored = self._classify_headline(
+                                    clean_sym,
+                                    f_title,
+                                    f_link or f"https://finance.yahoo.com/quote/{clean_sym}",
+                                    summary="",
+                                    company_name=company_name
+                                )
+                                if scored[0] != "Unrelated" and (scored[1] > 0.0 or scored[0] == "Dilution / Negative"):
+                                    c_cat, c_stars, c_hl, c_url, c_pos = scored
+                                    if has_confirmed_earnings and c_pos:
+                                        hl_lower = c_hl.lower()
+                                        if any(w in hl_lower for w in ["earnings", "results", "quarter", "q1", "q2", "q3", "q4", "profit", "net income"]):
+                                            if any(w in hl_lower for w in ["beat", "raise", "best day", "surge", "jump", "soar", "top", "rally", "pops"]):
+                                                c_cat = "Earnings Beat & Raise"
+                                                c_stars = 5.0
+                                            else:
+                                                c_cat = "Earnings Release"
+                                                c_stars = max(c_stars, 4.5)
+                                    pub_lbl = f"{today_est.strftime('%b %d')} (Today)" if is_today else today_est.strftime("%b %d")
+                                    candidate_catalysts.append((c_cat, c_stars, c_hl, c_url, c_pos, pub_lbl))
+            except Exception as e:
+                logger.debug(f"Error checking Finviz news for {clean_sym}: {e}")
+
+        # If company had confirmed earnings but no media headline was found or matched earnings, inject official earnings report
+        if has_confirmed_earnings:
+            has_media_earnings = any("Earnings" in c[0] for c in candidate_catalysts)
+            if not has_media_earnings:
+                earn_lbl = earn_date_label or f"{today_est.strftime('%b %d')} (Today)"
+                candidate_catalysts.append((
+                    "Earnings Release",
+                    5.0,
+                    f"Official Earnings Report filed ({earn_lbl})",
+                    f"https://finance.yahoo.com/quote/{clean_sym}",
+                    True,
+                    earn_lbl
+                ))
 
         # 3. Arbitrate across all fresh catalysts
         if candidate_catalysts:
@@ -341,8 +436,14 @@ class CatalystDetector:
                 self._cache[clean_sym] = selected
                 return selected
 
-            # Otherwise, pick fresh catalyst with the highest stars
-            candidate_catalysts.sort(key=lambda x: (x[1], "Today" in x[5]), reverse=True)
+            # Otherwise, pick fresh catalyst with the highest stars (prioritizing real headlines over generic placeholders if stars are equal)
+            def _arbitration_rank(c: Tuple[str, float, str, str, bool, str]):
+                stars = c[1]
+                is_today = 1 if "Today" in c[5] else 0
+                is_real_headline = 1 if not c[2].startswith("Official Earnings Report filed") else 0
+                return (stars, is_today, is_real_headline)
+
+            candidate_catalysts.sort(key=_arbitration_rank, reverse=True)
             selected = candidate_catalysts[0]
             self._cache[cache_key] = selected
             self._cache[clean_sym] = selected
@@ -354,5 +455,59 @@ class CatalystDetector:
         self._cache[clean_sym] = selected
         return selected
 
+    def detect_catalyst_rich(self, ticker: str, company_name: str = "", earnings_date: str = "") -> Dict[str, Any]:
+        """Detect catalyst and return unified rich dictionary with News Pulse signals."""
+        cat, stars, hl, url, is_pos, dt = self.detect_catalyst(ticker, company_name, earnings_date=earnings_date)
+        
+        # Determine source type & authority
+        source_type = "FINANCIAL_MEDIA"
+        url_lower = str(url).lower()
+        hl_lower = str(hl).lower()
+        if "sec.gov" in url_lower or "10-q" in hl_lower or "10-k" in hl_lower or "8-k" in hl_lower:
+            source_type = "SEC_EDGAR"
+        elif "businesswire" in url_lower or "prnewswire" in url_lower or "globenewswire" in url_lower:
+            source_type = "PRESS_RELEASE"
+        elif "reuters" in url_lower:
+            source_type = "REUTERS"
+        elif "bloomberg" in url_lower:
+            source_type = "BLOOMBERG"
+        elif "wsj" in url_lower or "wall street journal" in hl_lower:
+            source_type = "WSJ"
+        elif "Earnings Release" in cat or "Earnings Beat" in cat:
+            source_type = "PRESS_RELEASE"
+
+        from sources.news_pulse import news_pulse
+        sentiment_score = 0.8 if is_pos and stars >= 3.0 else (0.2 if is_pos else -0.8)
+        sig = news_pulse.compute_signal_score(
+            relevance=90.0 if stars >= 4.0 else (75.0 if stars >= 2.5 else 40.0),
+            novelty=85.0 if "Today" in dt else 60.0,
+            authority_or_source=source_type,
+            sentiment=sentiment_score
+        )
+        comp = news_pulse.compute_composite_catalyst_score(
+            pattern_stars=stars,
+            source=source_type,
+            sentiment_score=sentiment_score
+        )
+        
+        driver_type = "PRIMARY_DRIVER" if stars >= 4.0 else ("CONTRIBUTING_FACTOR" if stars >= 2.5 else "COINCIDENTAL")
+        
+        return {
+            "ticker": ticker,
+            "category": cat,
+            "stars": stars,
+            "blended_score": comp["blended_score"],
+            "signal_score": sig["composite_score"],
+            "authority": sig["authority"],
+            "sentiment_score": sentiment_score,
+            "source_type": source_type,
+            "driver_type": driver_type,
+            "headline": hl,
+            "url": url,
+            "is_positive": is_pos,
+            "date_str": dt,
+        }
+
 catalyst_detector = CatalystDetector()
+
 

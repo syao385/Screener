@@ -381,17 +381,20 @@ class OptionsFlowScanner:
         all_aggregated_list = []
         ticker_gamma_lookup = {}
 
-        # Prioritize portfolio tickers and core macro bellwethers first
-        scan_pool = ["SPY", "QQQ", "IWM"]
+        # Prioritize core macro bellwethers, portfolio tickers, and top watchlist setups
+        scan_pool = ["SPY", "QQQ", "IWM", "DIA"]
         if watchlist_tickers:
+            max_options_scan = 80
             for t in watchlist_tickers:
                 if t:
                     clean = t.split(":")[-1] if ":" in t else t
                     clean = clean.upper().strip()
                     if clean not in scan_pool and len(clean) <= 5 and clean.isalpha():
                         scan_pool.append(clean)
+                    if len(scan_pool) >= max_options_scan:
+                        break
 
-        with ThreadPoolExecutor(max_workers=6) as executor:
+        with ThreadPoolExecutor(max_workers=8) as executor:
             future_to_sym = {executor.submit(self.compute_45d_ticker_gamma, sym): sym for sym in scan_pool}
             for future in as_completed(future_to_sym):
                 try:

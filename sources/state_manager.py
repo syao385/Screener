@@ -129,9 +129,16 @@ class StateManager:
                     ))
                 else:
                     orig_ep_date = row["ep_date"]
-                    # If this is a fresh new EP date (e.g. quarterly earnings 3 months later), reset to Day 1
-                    if orig_ep_date != ep_date and ep_date > orig_ep_date:
-                        # Check trading day distance
+                    # Calculate date distance to avoid resetting an active multi-day EP cycle
+                    try:
+                        d1 = datetime.datetime.strptime(orig_ep_date, "%Y-%m-%d").date()
+                        d2 = datetime.datetime.strptime(ep_date, "%Y-%m-%d").date()
+                        days_diff = (d2 - d1).days
+                    except Exception:
+                        days_diff = 100
+
+                    # Only reset to Day 1 if the previous EP was > 10 days ago (a new quarterly earnings cycle)
+                    if days_diff > 10:
                         cursor.execute("""
                         UPDATE episodic_pivots SET
                             ep_date = ?,
@@ -156,7 +163,7 @@ class StateManager:
                             catalyst_stars, ep_date, now_ts, clean_sym
                         ))
                     else:
-                        # Same EP cycle: update last seen date
+                        # Same EP cycle (Days 2 to 5): do NOT overwrite ep_date or day_count with Day 1!
                         cursor.execute("""
                         UPDATE episodic_pivots SET
                             last_seen_date = ?,
@@ -180,13 +187,18 @@ class StateManager:
                 for r in rows:
                     sym = r["ticker"]
                     ep_date = r["ep_date"]
-                    last_seen = r["last_seen_date"]
                     day_cnt = r["day_count"]
 
-                    if current_date_str > ep_date and current_date_str != last_seen:
-                        # Calculate approximate trading days or advance by 1
-                        new_cnt = day_cnt + 1
-                        # If past 7 trading days, deactivate EP lifecycle
+                    if current_date_str > ep_date:
+                        try:
+                            d1 = datetime.datetime.strptime(ep_date, "%Y-%m-%d").date()
+                            d2 = datetime.datetime.strptime(current_date_str, "%Y-%m-%d").date()
+                            calendar_days = (d2 - d1).days
+                            new_cnt = max(2, calendar_days + 1)
+                        except Exception:
+                            new_cnt = day_cnt + 1
+
+                        # If past 7 calendar/trading days, deactivate EP lifecycle
                         is_active = 1 if new_cnt <= 7 else 0
                         cursor.execute("""
                         UPDATE episodic_pivots SET

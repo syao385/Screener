@@ -18,6 +18,12 @@
 | **v4.2.0** | 2026-08-24 | **TradingView Session % Change Integration, High-Momentum Candidate Prioritization & ETF Network Optimization**: Integrated official TradingView `change` and `change_from_open` fields. Expanded multi-vector prioritization to rank across `% Change`, `Gap %`, `RVOL`, and volume, ensuring morning winners (such as `BMNR +5.74%`) are included and evaluated (410 total candidates). Increased HTTPAdapter connection pool to 60, bypassed slow Finviz quote scraping, and added automatic ETF bypass eliminating yfinance 404 fundamentals errors. | Production |
 | **v4.3.0** | 2026-08-24 | **Break Up/Down Multi-Select Parity, Bucket Standardized % Chg & % Open Filters & Premarket Low Breakdowns**: Verified `% Chg` formula for regular hours ($\frac{\text{Current Price} - \text{Previous Close}}{\text{Previous Close}} \times 100\%$). Refined Break Up / Down dropdowns across both Watchlist and Portfolio screens to 6 choices: `> Last Week High`, `> Last Day High`, `> Premarket High`, `< Premarket Low`, `< Last Week Low`, `< Last Day Low` (all unchecked by default). Integrated `premarket_low` and `breakdown_pm_low`. Standardized `% Chg` and `% Open` dropdowns to match Total P&L% buckets (9 ranges: $<-20\%$ to $>+100\%$) across both screens. | Production |
 | **v4.3.1** | 2026-08-24 | **Refined Top Momentum Thresholds & Granular 0-5% / 5-10% Buckets**: Enhanced `% Chg`, `% Open`, and `Total P&L %` dropdowns on both screens with `> +3.0%` and `< -3.0%` at the top, replaced `0-10%` with fine-grained `0% to 5%` and `5% to 10%` buckets, and updated client-side range filtering. | Active Standard |
+| **v4.4.0** | 2026-09-03 | **Phase 3 Autonomous Workflow Daemon, Windows Tasks & Fidelity Execution Desk**: Delivered multi-session daemon (`scheduler/system_daemon.py`), Windows Task Scheduler registration, Fidelity ATP bracket tickets, and Telegram alerts. | Production |
+| **v4.8.0** | 2026-09-04 | **Phase 4 DuckDB Attribution Lake & Continuous Parameter Auto-Tuning**: Integrated DuckDB alpha attribution lake (`sources/attribution_lake.py`, `data/attribution_lake.duckdb`), 73 synthesized baseline holdings, toggleable forward incremental fills (default OFF, user override supported), Skill 08 Brinson-Fachler Factor Attribution (`sources/attribution_engine.py`), continuous parameter auto-tuning (`sources/parameter_tuner.py`) with hard safety clamps [0.50x, 1.35x], and Full-Stack Performance & Attribution Cockpit Desk (`reporter/html_generator.py`). | Production |
+| **v5.0.0** | 2026-09-05 | **Phase 5 Paper Trading Simulator, Drawdown Circuit Breakers & Stress Testing Engine**: Delivered Unified Paper Execution Simulator (`sources/order_router.py`, `data/paper_trading.duckdb`) with realistic slippage, Alpaca free-tier REST gateway, autonomous intraday drawdown circuit breakers (`sources/risk_circuit_breakers.py`: -1.0% Warning, -2.0% De-Risk, -3.0% Kill-Switch), 10,000-path Monte Carlo forward cones & 6 crisis historical replay engine (`sources/stress_testing_engine.py`), and 7th Primary Cockpit Tab (`🛡️ Risk Governance & Stress Testing`). | Production |
+| **v6.0.0** | 2026-09-06 | **Phase 6 Setup-Thesis Lifecycle, News Pulse Residual Attribution & 8th Cockpit Terminal**: Integrated Skills 13, 08, and 14. Delivered 2-factor beta residualization ($\epsilon_{i,t}$), multi-factor signal score ($0-100$), stealth flow surveillance ($Z_\epsilon \ge 2.0$), two-stage automated promotion state machine (Tactical Setup $\to$ Core Thesis), formulaic Health Score sizing rule, DuckDB lake tables (`news_pulse_events`, `thesis_contracts`, `thesis_drift_history`), and 8th Cockpit Tab (`📜 Thesis Lifecycle & News Pulse Terminal`). | Production |
+| **v7.0.0** | 2026-09-19 | **Phase 8 Upstream Thematic Discovery & Depth4 Macro Cascade Engine**: Delivered `sources/thematic_intelligence.py` integrating 4-Layer Durability Gate (`01_trend-identification.md`), Depth4 D1–D4 Causal Cascades (`https://depth4.com/`) with Unpriced Room % calculation, Era Alpha platform compounding evaluator (`02_era-alpha.md`), and Layer 2–3 physical chokepoint arbitrage with $P/S \le 30\times$ valuation gate (`02_bottleneck-hunter.md`). Added Antigravity skills `/bottleneck-hunter`, `/era-alpha`, and `/trend-discovery`. | Production |
+| **v8.0.0** | 2026-09-22 | **Phase 9-11 Institutional v2.0 Production Release**: Delivered Buffett 6-Gate Pre-Purchase Verification Audit & 4-Master Consensus Desk with Beneish M-Score formula correction, SGI hyper-growth cap, 4Q rolling Sloan accruals, and multi-signal confluence veto gating; codified exact Multi-Session RVOL Anchors across all 4 sessions (00:00 Midnight, 09:30 AM, 16:30 PM, Friday 16:30 PM); instituted Hands-Off Earnings Review Daemon; eliminated synthetic fallback data; packaged Antigravity Institutional Skills suite; and verified 100% test coverage. | Active Production v2.0 |
 
 ---
 
@@ -36,10 +42,13 @@
   - **After-Hours / Weekend**:
     $$\text{Gap \%} = \frac{\text{Current Postmarket Price} - \text{Regular Close}}{\text{Regular Close}} \times 100\%$$
 - **Continuous Live Streaming**: Run with `--realtime` / `-r` to auto-refresh the dashboard every 60 seconds with rate-limiting backoff.
-- **Session-Specific Price Gatekeeping**:
-  - **Premarket (04:00 - 09:30 EST)**: Requires `Price > Yesterday's High`. RVOL anchored to `04:00 EST`.
-  - **Regular Market Hours (09:30 - 16:00 EST)**: Requires `Price > Yesterday's High` **AND** `Price >= Premarket High`. RVOL anchored to `09:30 EST`.
-  - **After-Hours (16:00 - 20:00 EST) & Weekend**: Requires `Price >= Latest Business Day's High`. RVOL anchored to `16:00 EST`.
+- **Session-Specific Price Gatekeeping & Institutional RVOL Anchoring**:
+  - **Premarket (00:00 - 09:30 EST)**: Requires `Price > Yesterday's High`. RVOL strictly anchored to **Midnight 00:00 AM EST**.
+  - **Regular Market Hours (09:30 - 16:30 EST)**: Requires `Price > Yesterday's High` **AND** `Price >= Premarket High`. RVOL anchored to **09:30 AM EST**.
+  - **After-Hours (16:30 - 23:59 EST)**: Requires `Price >= Latest Business Day's High`. RVOL anchored to **04:30 PM EST (16:30 EST)**.
+  - **Weekend (Friday 16:30 - Sunday 23:59 EST)**: Requires `Price >= Latest Business Day's High`. RVOL anchored to **Friday 04:30 PM EST**.
+  - **Mathematical Formula**:
+    $$\text{RVOL}(T) = \frac{\text{Cumulative Volume since Anchor Time up to } T}{\text{20-day Average of Cumulative Volume since Anchor Time up to } T}$$
 
 ### 🧠 2. Catalyst Intelligence & NLP Scoring
 - **Multi-Source Arbitration**: Aggregates news streams across Yahoo Finance, Finviz, and SEC filings.
@@ -104,3 +113,80 @@ python run_screener.py --headless
 # 5. Run full automated unit test suite
 python -m unittest tests/test_suite.py
 ```
+
+---
+
+## 3. Phase 6 Architecture Walkthrough & Operational Guide
+
+### ⚡ 1. 2-Factor Beta Residualization & News Attribution (`sources/news_pulse.py`)
+- **Beta Decomposition**: Isolates single-stock alpha from SPY and Sector ETF movements:
+  $$\epsilon_{i,t} = R_{i,t} - (\alpha_i + \beta_{\text{SPY}} R_{\text{SPY},t} + \beta_{\text{Sector}} R_{\text{Sector},t})$$
+- **Signal Scoring**: Evaluates articles against Relevance ($40\%$), Novelty ($30\%$), Authority ($20\%$), and Sentiment Magnitude ($10\%$).
+- **Stealth Event Detection**: Identifies abnormal price action without public news ($Z_\epsilon \ge 2.0$, $\text{Signal} < 50$), flagging potential institutional accumulation or non-public order flow.
+
+### 🎯 2. Two-Stage Setup-to-Thesis Lifecycle (`sources/setup_thesis_lifecycle.py`)
+- **Stage 1 (Tactical Setup)**: Governed by the 9 Master Setup entry pivots, hard stops, soft stops, and $+2.0R / +3.5R$ targets.
+- **Stage 2 (Core Investment Thesis)**: Automatically promoted when Target 1 (+2.0R) is achieved or when held $\ge 10$ days in Stage 2 trend with healthy Sloan accruals ($\le 8\%$).
+- **Composite Health Score ($0-10$)**:
+  $$H_t = 10.0 - 3.0 \cdot N_{\text{BROKEN}} - 1.5 \cdot N_{\text{BREACHED}} - 0.5 \cdot N_{\text{MARGINAL}} - 2.0 \cdot N_{\text{REDLINE}} + 0.5 \cdot N_{\text{NEW\_STRENGTH}}$$
+- **Dynamic De-risking**: Linear trim applied for $3.0 \le H < 6.0$:
+  $$\text{Trim Share \%} = (6.0 - H) \times 10\%$$
+
+### 🛡️ 3. Execution Desk Priority Routing
+- **Tier 1 (Immediate Sells)**: Broken Theses ($H < 3.0$) and Fatal Red-Lines.
+- **Tier 2 (Risk Alerts)**: News Pulse Stealth Surges ($Z_\epsilon \ge 2.0$).
+- **Tier 3 (Profit Targets & Trims)**: Weakened Thesis linear trims ($3.0 \le H < 6.0$).
+
+### 📜 4. 8th Primary Cockpit Tab (`latest_report.html`)
+- **Screen 8**: `📜 Thesis Lifecycle & News Pulse Terminal` integrates Fleet Health Matrix, Drift Radar, and Breaking News Attribution Stream.
+- **Drawer Upgrades**: Card 3 (Catalyst) upgraded with News Signal Scores and Card 4 (Trading Plan) with Lifecycle Stage and Health Score badges.
+
+---
+
+## 4. Phase 7: Upstream Thematic Discovery & Depth4 Causal Cascades
+
+- **Engine**: `sources/thematic_intelligence.py`
+- **4-Layer Durability Gate**:
+  - Validates momentum, YoY CapEx growth ($\ge 15\%$), consensus earnings revision breadth, and relative price strength.
+- **Depth4 Causal Cascades**:
+  - Maps themes across D1 (Direct pure play) $\to$ D2 (Critical components) $\to$ D3 (Foundational power & grid) $\to$ D4 (Tertiary raw materials).
+- **Unpriced Room %**:
+  - Calculates the remaining unpriced upside from options-implied structural moves.
+- **Bottleneck Hunter**:
+  - Arbitrages Layer 2–3 physical chokepoints and enforces strict $P/S \le 30\times$ valuation gate.
+- **Era Alpha**:
+  - Identifies platform compounding anchors with sustainable $\text{ROIC} > 18\%$.
+
+---
+
+## 5. Phase 8: Buffett 6-Gate Pre-Purchase Verification Audit & Forensic Desk
+
+- **Interactive Modal**: Click `6-Gate Audit` on any ticker in the Screener, Portfolio, or Earnings tabs.
+- **6-Gate Verification**:
+  1. Circle of Competence (Understandable economics, high ROCE).
+  2. Enduring Moat & Pricing Power (Gross Margin $\ge 40\%$).
+  3. Capital Allocation & Conservative Balance Sheet (Piotroski F-Score $\ge 5/9$).
+  4. Honest & Competent Management (YoY Dilution $\le 2\%$).
+  5. Reverse DCF & Margin of Safety (Market-implied growth hurdle).
+  6. Forensic Accounting & Red Flag Audit:
+     - Beneish M-Score ($M < -1.78$ pass): AQI does not subtract Gross Profit; SGI capped at $1.25$ for expanding gross margins ($GMI \le 1.05$).
+     - Sloan Accrual: 4-quarter rolling mean ($\le 8\%$).
+     - Confluence Gating: Borderline M-score triggers `🟡 WARN` (0.5x sizing); fatal veto ($0.0\times$) strictly requires multi-signal confluence.
+- **Data Integrity**: Un-audited stocks display `⚪ PENDING AUDIT (NO DATA)` cards, never dummy $10B passes.
+
+---
+
+## 6. Phase 9: Multi-Session RVOL Anchor Engine & Daily Cadence Workflows
+
+- **Deterministic Session RVOL Anchors**:
+  - Premarket: **Midnight 00:00 AM EST**
+  - Regular Hours: **09:30 AM EST**
+  - After-Hours: **04:30 PM EST**
+  - Weekend: **Friday 04:30 PM EST**
+- **Calculation**: Cumulative volume from anchor to current time $T$ divided by 20-day historical average over the identical elapsed window.
+- **Daily Cadence Automation**:
+  - Premarket Session (08:00 – 09:15 EST)
+  - Opening Bell Execution (09:30 – 10:15 EST)
+  - Mid-Day Drift & Health Check (12:00 – 13:00 EST)
+  - Postmarket Lake Sync & Earnings Review (16:00 – 17:30 EST)
+  - Hands-Off Earnings Review Daemon running via Windows Task Scheduler.

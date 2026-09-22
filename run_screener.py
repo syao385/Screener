@@ -2,6 +2,7 @@
 
 import os
 import sys
+import json
 import time
 import argparse
 import logging
@@ -13,6 +14,7 @@ from typing import List, Dict, Any, Tuple, Optional
 
 from config import (
     REPORT_HTML_PATH,
+    DATA_DIR,
     DAY_TRADING_MIN_GAP,
     DAY_TRADING_MIN_PRICE,
     DAY_TRADING_MIN_MARKET_CAP,
@@ -27,34 +29,48 @@ from sources.rvol_calculator import rvol_calc
 from sources.catalyst_detector import catalyst_detector
 from sources.setup_scorer import setup_scorer
 from sources.macro_regime import macro_assessor
+from sources.sector_flow_engine import sector_flow_engine
 from sources.economic_calendar import economic_cal
 from sources.earnings_calendar import earnings_cal
 from sources.analyst_ratings import analyst_feed
 from sources.options_flow import options_scanner
 from sources.state_manager import state_mgr
 from sources.pattern_detector import pattern_detector
+from sources.earnings_intelligence import earnings_intel
+from sources.earnings_scheduler import earnings_scheduler
+from sources.thematic_intelligence import thematic_engine
 from reporter.html_generator import html_generator
 from reporter.terminal_viewer import terminal_viewer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("orchestrator")
+logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("peewee").setLevel(logging.CRITICAL)
 
 def get_market_session(now_est: datetime.datetime) -> Tuple[str, str]:
-    """Determine market session: PREMARKET | REGULAR | POSTMARKET."""
+    """
+    Determine market session according to institutional anchor definitions:
+    1. Premarket: 00:00 - 09:30 EST (Anchor: Midnight - 00:00 AM EST)
+    2. Regular Hours: 09:30 - 16:30 EST (Anchor: 09:30 AM EST)
+    3. After-Hours: 16:30 - 23:59:59 EST Mon-Thu (Anchor: 04:30 PM EST)
+    4. Weekend: Friday 16:30 EST through Sunday 23:59:59 EST (Anchor: Friday 04:30 PM EST)
+    """
     weekday = now_est.weekday()
     t = now_est.time()
 
+    # Weekend: Friday 16:30 EST through Sunday 23:59:59 EST (until Monday 00:00 EST)
     if weekday >= 5:
-        return "POSTMARKET", "Weekend Review (Post-Market Close)"
-    if t < datetime.time(4, 0):
-        return "POSTMARKET", "Overnight (Post-Market Close)"
-    if datetime.time(4, 0) <= t < datetime.time(9, 30):
-        return "PREMARKET", "Premarket Session (04:00 - 09:30 EST)"
-    if datetime.time(9, 30) <= t < datetime.time(16, 0):
-        return "REGULAR", "Regular Market Hours (09:30 - 16:00 EST)"
-    if datetime.time(16, 0) <= t < datetime.time(20, 0):
-        return "POSTMARKET", "After-Hours Session (16:00 - 20:00 EST)"
-    return "POSTMARKET", "Post-Market Close (20:00 - 04:00 EST)"
+        return "WEEKEND", "Weekend Review (Anchor: Friday 04:30 PM EST)"
+    if weekday == 4 and t >= datetime.time(16, 30):
+        return "WEEKEND", "Weekend Review (Anchor: Friday 04:30 PM EST)"
+
+    # Weekdays (Mon-Thu, and Fri before 16:30 EST):
+    if t < datetime.time(9, 30):
+        return "PREMARKET", "Premarket Session (Anchor: 00:00 AM Midnight EST)"
+    if datetime.time(9, 30) <= t < datetime.time(16, 30):
+        return "REGULAR", "Regular Market Hours (Anchor: 09:30 AM EST)"
+    return "POSTMARKET", "After-Hours Session (Anchor: 04:30 PM EST)"
 
 def format_market_cap(val: float) -> str:
     """Format market cap in B / M format."""
@@ -181,6 +197,74 @@ def build_yfinance_row(ticker: str) -> Optional[Dict[str, Any]]:
         logger.debug(f"Error fetching yfinance row for {ticker}: {e}")
         return None
 
+def reconcile_live_quotes(eval_rows: List[Dict[str, Any]], session_type: str) -> None:
+    """Reconcile real-time tick prices, previous close, and session % change via fast bulk download."""
+    if not eval_rows:
+        return
+    
+    symbols = [str(r.get("name") or r.get("ticker", "")).split(":")[-1] for r in eval_rows if str(r.get("name") or r.get("ticker", "")).split(":")[-1]]
+    if not symbols:
+        return
+
+    try:
+        import yfinance as yf
+        chunk_size = 150
+        for i in range(0, len(symbols), chunk_size):
+            chunk_syms = symbols[i:i+chunk_size]
+            df_bulk = yf.download(chunk_syms, period="5d", interval="1d", progress=False)
+            if df_bulk is not None and not df_bulk.empty and "Close" in df_bulk:
+                close_df = df_bulk["Close"]
+                open_df = df_bulk["Open"] if "Open" in df_bulk else close_df
+                high_df = df_bulk["High"] if "High" in df_bulk else close_df
+                low_df = df_bulk["Low"] if "Low" in df_bulk else close_df
+                vol_df = df_bulk["Volume"] if "Volume" in df_bulk else None
+                
+                is_multi = isinstance(close_df, pd.DataFrame)
+                
+                for r in eval_rows[i:i+chunk_size]:
+                    sym = str(r.get("name") or r.get("ticker", "")).split(":")[-1]
+                    try:
+                        if is_multi:
+                            if sym not in close_df.columns:
+                                continue
+                            c_series = close_df[sym].dropna()
+                            o_series = open_df[sym].dropna() if sym in open_df else c_series
+                            h_series = high_df[sym].dropna() if sym in high_df else c_series
+                            l_series = low_df[sym].dropna() if sym in low_df else c_series
+                            v_series = vol_df[sym].dropna() if (vol_df is not None and sym in vol_df) else None
+                        else:
+                            c_series = close_df.dropna()
+                            o_series = open_df.dropna()
+                            h_series = high_df.dropna()
+                            l_series = low_df.dropna()
+                            v_series = vol_df.dropna() if vol_df is not None else None
+
+                        if len(c_series) >= 1:
+                            live_close = float(c_series.iloc[-1])
+                            prev_close = float(c_series.iloc[-2]) if len(c_series) >= 2 else live_close
+                            live_open = float(o_series.iloc[-1]) if len(o_series) >= 1 else live_close
+                            live_high = float(h_series.iloc[-1]) if len(h_series) >= 1 else live_close
+                            live_low = float(l_series.iloc[-1]) if len(l_series) >= 1 else live_close
+                            live_vol = float(v_series.iloc[-1]) if (v_series is not None and len(v_series) >= 1) else float(r.get("volume", 0.0) or 0.0)
+                            
+                            if live_close > 0:
+                                r["close"] = live_close
+                                r["open"] = live_open
+                                r["high"] = live_high
+                                r["low"] = live_low
+                                r["close[1]"] = prev_close
+                                if live_vol > 0:
+                                    r["volume"] = live_vol
+                                
+                                if prev_close > 0:
+                                    r["change"] = ((live_close - prev_close) / prev_close) * 100.0
+                                if live_open > 0:
+                                    r["change_from_open"] = ((live_close - live_open) / live_open) * 100.0
+                    except Exception:
+                        pass
+    except Exception as e:
+        logger.debug(f"Live quote reconciliation error: {e}")
+
 def process_candidate(
     row: pd.Series,
     now_est: datetime.datetime,
@@ -199,6 +283,8 @@ def process_candidate(
     post_close = float(row.get("postmarket_close", 0.0) or 0.0)
     pre_high = float(row.get("premarket_high", 0.0) or 0.0)
     pre_low = float(row.get("premarket_low", 0.0) or 0.0)
+    post_high = float(row.get("postmarket_high", 0.0) or 0.0)
+    post_low = float(row.get("postmarket_low", 0.0) or 0.0)
     day_high = float(row.get("high", 0.0) or 0.0)
     prev_high = float(row.get("high[1]", 0.0) or day_high)
     mkt_cap = float(row.get("market_cap_basic", 0.0) or 0.0)
@@ -232,41 +318,69 @@ def process_candidate(
     price_52w_high = float(row.get("price_52_week_high", 0.0) or 0.0)
     price_52w_low = float(row.get("price_52_week_low", 0.0) or 0.0)
 
-    # 1. Base % Chg is ALWAYS: (Current Close - Previous Close) / Previous Close * 100%
+    # 1. Base % Chg
     tv_chg = row.get("change")
     if tv_chg is not None and not pd.isna(tv_chg):
-        pct_change = float(tv_chg)
+        base_pct_change = float(tv_chg)
     elif close_price > 0 and prev_close > 0:
-        pct_change = ((close_price - prev_close) / prev_close) * 100.0
+        base_pct_change = ((close_price - prev_close) / prev_close) * 100.0
     else:
-        pct_change = 0.0
+        base_pct_change = 0.0
 
     # 2. Session Gap % & Evaluation Price
+    base_prev = prev_close if prev_close > 0 else close_price
+    day_gap = ((open_price - base_prev) / base_prev * 100.0) if (open_price > 0 and base_prev > 0) else 0.0
+
     if session_type == "PREMARKET":
         current_price = pre_close if pre_close > 0 else close_price
-        ref_high = day_high if day_high > 0 else prev_high
-        base_prev = prev_close if prev_close > 0 else close_price
-        gap_pct = ((current_price - base_prev) / base_prev * 100.0) if (base_prev > 0 and current_price > 0) else float(row.get("premarket_change", 0.0) or 0.0)
+        ref_high = pre_high if pre_high > 0 else (day_high if day_high > 0 else prev_high)
+        tv_pm_chg = row.get("premarket_change")
+        if tv_pm_chg is not None and not pd.isna(tv_pm_chg) and pre_close > 0:
+            gap_pct = float(tv_pm_chg)
+        elif pre_close > 0 and base_prev > 0:
+            gap_pct = ((pre_close - base_prev) / base_prev) * 100.0
+        else:
+            gap_pct = day_gap
         eval_vol = pre_vol
-    elif session_type == "POSTMARKET":
-        current_price = post_close if post_close > 0 else close_price
-        ref_high = day_high if day_high > 0 else prev_high
-        base_reg_close = close_price if close_price > 0 else prev_close
-        gap_pct = ((current_price - base_reg_close) / base_reg_close * 100.0) if (base_reg_close > 0 and current_price > 0) else float(row.get("postmarket_change", 0.0) or 0.0)
-        eval_vol = post_vol if post_vol > 0 else cur_vol
+        pct_change = gap_pct if pre_close > 0 else base_pct_change
+
+    elif session_type in ["POSTMARKET", "WEEKEND"]:
+        has_post_trade = post_close > 0 and abs(post_close - close_price) > 0.001
+        tv_post_chg = row.get("postmarket_change")
+        if tv_post_chg is not None and not pd.isna(tv_post_chg) and has_post_trade:
+            post_gap = float(tv_post_chg)
+        elif has_post_trade and close_price > 0:
+            post_gap = ((post_close - close_price) / close_price) * 100.0
+        else:
+            post_gap = 0.0
+
+        if has_post_trade and abs(post_gap) >= 0.2:
+            # Active extended-hours mover (e.g. after-hours earnings or breaking catalyst anchored to 16:30)
+            current_price = post_close
+            ref_high = post_high if post_high > 0 else (day_high if day_high > 0 else prev_high)
+            gap_pct = post_gap
+            pct_change = ((post_close - base_prev) / base_prev * 100.0) if base_prev > 0 else base_pct_change
+            eval_vol = post_vol if post_vol > 0 else cur_vol
+        else:
+            # Normal overnight / weekend review of settled regular session (anchored to 09:30)
+            current_price = close_price if close_price > 0 else (post_close if post_close > 0 else open_price)
+            ref_high = prev_high if prev_high > 0 else day_high
+            gap_pct = day_gap if abs(day_gap) > 0.0 else post_gap
+            pct_change = base_pct_change
+            eval_vol = cur_vol
+
     else: # REGULAR
         current_price = close_price if close_price > 0 else open_price
         ref_high = prev_high if prev_high > 0 else day_high
-        base_prev = prev_close if prev_close > 0 else close_price
-        if pre_close > 0 and base_prev > 0:
-            gap_pct = ((pre_close - base_prev) / base_prev) * 100.0
-        elif open_price > 0 and base_prev > 0:
+        if open_price > 0 and base_prev > 0:
             gap_pct = ((open_price - base_prev) / base_prev) * 100.0
+        elif pre_close > 0 and base_prev > 0:
+            gap_pct = ((pre_close - base_prev) / base_prev) * 100.0
         else:
-            gap_pct = float(row.get("premarket_change", 0.0) or 0.0)
+            tv_pm_chg = row.get("premarket_change")
+            gap_pct = float(tv_pm_chg) if (tv_pm_chg is not None and not pd.isna(tv_pm_chg)) else 0.0
         eval_vol = cur_vol
-        if base_prev > 0 and current_price > 0:
-            pct_change = ((current_price - base_prev) / base_prev) * 100.0
+        pct_change = ((current_price - base_prev) / base_prev * 100.0) if (base_prev > 0 and current_price > 0) else base_pct_change
 
     # % from Open
     tv_open_chg = row.get("change_from_open")
@@ -284,17 +398,44 @@ def process_candidate(
     sma50_dist = ((current_price - sma50_num) / sma50_num * 100.0) if sma50_num > 0 else 0.0
     sma200_dist = ((current_price - sma200_num) / sma200_num * 100.0) if sma200_num > 0 else 0.0
 
-    # Session RVOL
+    # Session RVOL Calculation:
+    # Anchored strictly to:
+    # - PREMARKET: Midnight - 00:00 AM EST (cumulative volume [00:00 -> T] vs 20d avg [00:00 -> T])
+    # - REGULAR: 09:30 AM EST (cumulative volume [09:30 -> T] vs 20d avg [09:30 -> T])
+    # - POSTMARKET: 04:30 PM EST (cumulative volume [16:30 -> T] vs 20d avg [16:30 -> T])
+    # - WEEKEND: Friday 04:30 PM EST (cumulative volume [Friday 16:30 -> 20:00] vs 20d avg [16:30 -> 20:00])
+    is_active_pm_mover = (session_type in ["POSTMARKET", "WEEKEND"] and has_post_trade and abs(post_gap) >= 0.2 and post_vol > 0)
+    effective_session = session_type if is_active_pm_mover else ("PREMARKET" if session_type == "PREMARKET" else "REGULAR")
+
     rvol = rvol_calc.calculate_session_rvol(
         ticker=clean_ticker,
-        session_type=session_type,
+        session_type=effective_session,
         current_volume=eval_vol,
+        adv_20d=avg_vol_30d,
         tv_rvol=tv_rvol,
         target_time=now_est.time()
     )
 
+    # Format Earnings Date (Prioritize Finviz Real-Time Calendar)
+    earn_str = "—"
+    if earnings_lookup and clean_ticker in earnings_lookup:
+        earn_str = earnings_lookup[clean_ticker]
+    else:
+        next_earn_ts = row.get("earnings_release_next_date")
+        prev_earn_ts = row.get("earnings_release_date")
+        target_ts = next_earn_ts if (next_earn_ts and not pd.isna(next_earn_ts)) else prev_earn_ts
+        if target_ts and not pd.isna(target_ts):
+            try:
+                ts_val = float(target_ts)
+                if ts_val > 0:
+                    dt_earn = datetime.datetime.fromtimestamp(ts_val, tz=datetime.timezone.utc)
+                    earn_timing = " a" if dt_earn.hour >= 18 else (" b" if dt_earn.hour <= 14 else "")
+                    earn_str = dt_earn.strftime("%b %d") + earn_timing
+            except Exception:
+                earn_str = "—"
+
     # Detect and arbitrate catalyst
-    cat_res = catalyst_detector.detect_catalyst(clean_ticker, company_name=company_name)
+    cat_res = catalyst_detector.detect_catalyst(clean_ticker, company_name=company_name, earnings_date=earn_str)
     if len(cat_res) == 6:
         cat_type, cat_stars, cat_headline, cat_url, is_positive, cat_date = cat_res
     else:
@@ -324,24 +465,6 @@ def process_candidate(
     vwap_std_p2 = (vwap_dist >= 2.0 * vwap_std_pct)
     vwap_std_m1 = (vwap_dist <= -vwap_std_pct)
     vwap_std_m2 = (vwap_dist <= -2.0 * vwap_std_pct)
-
-    # Format Earnings Date (Prioritize Finviz Real-Time Calendar)
-    earn_str = "—"
-    if earnings_lookup and clean_ticker in earnings_lookup:
-        earn_str = earnings_lookup[clean_ticker]
-    else:
-        next_earn_ts = row.get("earnings_release_next_date")
-        prev_earn_ts = row.get("earnings_release_date")
-        target_ts = next_earn_ts if (next_earn_ts and not pd.isna(next_earn_ts)) else prev_earn_ts
-        if target_ts and not pd.isna(target_ts):
-            try:
-                ts_val = float(target_ts)
-                if ts_val > 0:
-                    dt_earn = datetime.datetime.fromtimestamp(ts_val, tz=datetime.timezone.utc)
-                    earn_timing = " a" if dt_earn.hour >= 18 else (" b" if dt_earn.hour <= 14 else "")
-                    earn_str = dt_earn.strftime("%b %d") + earn_timing
-            except Exception:
-                earn_str = "—"
 
     # Crossing detections
     vwap_xo = (vwap_num > 0 and current_price >= vwap_num and (day_low_val < vwap_num or open_price < vwap_num) and vwap_dist <= 2.0)
@@ -498,7 +621,11 @@ def process_candidate(
         "pattern_info": pattern_info,
         "primary_pattern": pattern_info.get("primary_pattern", "MOMENTUM_RUNNER"),
         "pattern_badge": pattern_info.get("badge_label", "⚡ Momentum"),
-        "preset_tags": " ".join(pattern_info.get("preset_tags", ["ALL_SETUPS"])),
+        "preset_tags": " ".join(
+            pattern_info.get("preset_tags", ["ALL_SETUPS"]) + 
+            (["THEMATIC_UNIVERSE"] if thematic_engine.get_ticker_meta(clean_ticker) else [])
+        ),
+        "thematic_meta": thematic_engine.get_ticker_meta(clean_ticker),
         "is_exhausted": pattern_info.get("is_exhausted", False),
         "exhaustion_flag": pattern_info.get("exhaustion_flag", "CLEAN"),
         "exhaustion_desc": pattern_info.get("exhaustion_desc", ""),
@@ -523,9 +650,17 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
     macro_data = macro_assessor.assess_macro_regime(force_refresh=force_refresh)
     comp_regime = macro_data.get("composite_regime", "Neutral")
 
-    # 2. Ingest Economic Calendar
-    logger.info("Step 2/6: Ingesting Economic Calendar...")
-    economic_events = economic_cal.get_today_events()
+    # 1b. Ingest Sector & Thematic Flows (14_institutional-flows.md & 02_industry-funnel.md)
+    logger.info("Step 1b: Assessing Sector & Sub-Industry ETF Capital Flows...")
+    try:
+        sector_flow_data = sector_flow_engine.get_sector_flow_matrix(force_refresh=force_refresh)
+    except Exception as e:
+        logger.warning(f"Could not compute sector flows: {e}")
+        sector_flow_data = {"sectors": [], "top_inflows": [], "top_outflows": [], "sub_industries": {}}
+
+    # 2. Ingest Economic Calendar (Weekly Outlook)
+    logger.info("Step 2/6: Ingesting US Economic Calendar (Weekly Outlook)...")
+    economic_events = economic_cal.get_week_events()
 
     # 3. Ingest Earnings Calendar
     logger.info("Step 3/6: Ingesting Finviz Earnings Calendar...")
@@ -553,17 +688,33 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
             # Determine price & session gap for prioritization
             if session_type == "PREMARKET":
                 price = pre_close if pre_close > 0 else close
-                gap = float(row.get("premarket_change", 0.0) or 0.0)
-                if gap == 0.0 and close > 0:
-                    gap = ((price - close) / close) * 100.0
+                tv_pm_chg = row.get("premarket_change")
+                if tv_pm_chg is not None and not pd.isna(tv_pm_chg) and pre_close > 0:
+                    gap = float(tv_pm_chg)
+                elif pre_close > 0 and close > 0:
+                    gap = ((pre_close - close) / close) * 100.0
+                else:
+                    gap = 0.0
             elif session_type == "POSTMARKET":
                 price = post_close if post_close > 0 else close
-                gap = ((price - close) / close * 100.0) if close > 0 else float(row.get("postmarket_change", 0.0) or 0.0)
+                tv_post_chg = row.get("postmarket_change")
+                if tv_post_chg is not None and not pd.isna(tv_post_chg) and post_close > 0:
+                    gap = float(tv_post_chg)
+                elif post_close > 0 and close > 0:
+                    gap = ((post_close - close) / close) * 100.0
+                else:
+                    gap = 0.0
             else:
                 price = close
                 open_val = float(row.get("open", 0.0) or 0.0)
                 prev_close = float(row.get("close[1]", 0.0) or close)
-                gap = ((open_val - prev_close) / prev_close * 100.0) if (open_val > 0 and prev_close > 0) else float(row.get("premarket_change", 0.0) or 0.0)
+                if open_val > 0 and prev_close > 0:
+                    gap = ((open_val - prev_close) / prev_close * 100.0)
+                elif pre_close > 0 and prev_close > 0:
+                    gap = ((pre_close - prev_close) / prev_close * 100.0)
+                else:
+                    tv_pm_chg = row.get("premarket_change")
+                    gap = float(tv_pm_chg) if (tv_pm_chg is not None and not pd.isna(tv_pm_chg)) else 0.0
 
             # Base Universal Ingestion Standards: Cap >= $1.0B, Vol >= 500k, Price >= $1.50
             if (mkt_cap >= DAY_TRADING_MIN_MARKET_CAP and 
@@ -596,6 +747,53 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
     # Map TradingView rows by clean ticker symbol
     tv_rows_by_sym = {str(r.get("name") or r.get("ticker", "")).split(":")[-1]: r.to_dict() for _, r in raw_df.iterrows()}
 
+    # Build Finviz real-time earnings timing lookup
+    finviz_earnings_lookup = {}
+    for item in earnings_data.get("today_bmo", []):
+        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{now_est.strftime('%b %d')} b")
+    for item in earnings_data.get("today_amc", []):
+        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{now_est.strftime('%b %d')} a")
+    for item in earnings_data.get("yesterday_amc", []):
+        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{(now_est - datetime.timedelta(days=1)).strftime('%b %d')} a")
+    for item in earnings_data.get("tomorrow_bmo", []):
+        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{(now_est + datetime.timedelta(days=1)).strftime('%b %d')} b")
+    for item in earnings_data.get("tomorrow_amc", []):
+        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{(now_est + datetime.timedelta(days=1)).strftime('%b %d')} a")
+
+    # Dynamically batch-fetch full extended-hours quotes from TradingView for any missing portfolio, earnings & thematic chokepoint symbols
+    thematic_tickers = {item["ticker"] for item in thematic_engine.get_curated_thematic_universe()}
+    priority_syms_to_fetch = [
+        s for s in (port_tickers_set | set(finviz_earnings_lookup.keys()) | thematic_tickers)
+        if s not in tv_rows_by_sym and not s.startswith("$") and s != "SPAXX**"
+    ]
+    if priority_syms_to_fetch:
+        try:
+            from tradingview_screener import Query, col
+            from sources.tradingview_scanner import scanner as tv_scan_inst
+            q_extra = Query().set_markets("america").select(*tv_scan_inst.fields).where(col("name").isin(priority_syms_to_fetch[:100]))
+            _, extra_df = q_extra.get_scanner_data()
+            if extra_df is not None and not extra_df.empty:
+                for _, r in extra_df.iterrows():
+                    clean_s = str(r.get("name") or r.get("ticker", "")).split(":")[-1]
+                    tv_rows_by_sym[clean_s] = r.to_dict()
+                logger.info(f"Dynamically ingested {len(extra_df)} missing priority portfolio & earnings tickers from TradingView")
+                try:
+                    import pickle
+                    from pathlib import Path
+                    cache_file = Path(__file__).resolve().parent / "data" / "cache" / "tv_universe_cache.pkl"
+                    if cache_file.exists():
+                        with open(cache_file, "rb") as f:
+                            cached_df = pickle.load(f)
+                        combined_df = pd.concat([cached_df, extra_df], ignore_index=True).drop_duplicates(subset=["name"], keep="last")
+                        with open(cache_file, "wb") as f:
+                            pickle.dump(combined_df, f)
+                        from sources.defeatbeta_client import defeatbeta_client
+                        defeatbeta_client._tv_map_cache = {str(r.get("name") or r.get("ticker", "")).split(":")[-1].upper(): r.to_dict() for _, r in combined_df.iterrows()}
+                except Exception:
+                    pass
+        except Exception as ex:
+            logger.debug(f"Dynamic priority TradingView scan error: {ex}")
+
     # Guarantee full market row for every portfolio underlying ticker
     port_candidate_rows = []
     for u_sym in port_tickers_set:
@@ -613,18 +811,15 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
         if sym and sym not in combined_eval_dict:
             combined_eval_dict[sym] = r
 
-    # Build Finviz real-time earnings timing lookup
-    finviz_earnings_lookup = {}
-    for item in earnings_data.get("today_bmo", []):
-        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{now_est.strftime('%b %d')} b")
-    for item in earnings_data.get("today_amc", []):
-        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{now_est.strftime('%b %d')} a")
-    for item in earnings_data.get("yesterday_amc", []):
-        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{(now_est - datetime.timedelta(days=1)).strftime('%b %d')} a")
-    for item in earnings_data.get("tomorrow_bmo", []):
-        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{(now_est + datetime.timedelta(days=1)).strftime('%b %d')} b")
-    for item in earnings_data.get("tomorrow_amc", []):
-        finviz_earnings_lookup[item["ticker"]] = item.get("timing", f"{(now_est + datetime.timedelta(days=1)).strftime('%b %d')} a")
+    # Guarantee 100% inclusion for all Finviz Earnings Calendar tickers
+    for ep_sym in finviz_earnings_lookup.keys():
+        if ep_sym not in combined_eval_dict:
+            if ep_sym in tv_rows_by_sym:
+                combined_eval_dict[ep_sym] = tv_rows_by_sym[ep_sym]
+            else:
+                yf_row = build_yfinance_row(ep_sym)
+                if yf_row:
+                    combined_eval_dict[ep_sym] = yf_row
 
     all_eval_rows = list(combined_eval_dict.values())
     
@@ -645,8 +840,21 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
                 if yf_row:
                     combined_eval_dict[ep_sym] = yf_row
 
+    # Guarantee 100% inclusion for all Curated Thematic & Chokepoint tickers
+    thematic_universe_items = thematic_engine.get_curated_thematic_universe()
+    for th_item in thematic_universe_items:
+        th_sym = th_item["ticker"]
+        if th_sym not in combined_eval_dict:
+            if th_sym in tv_rows_by_sym:
+                combined_eval_dict[th_sym] = tv_rows_by_sym[th_sym]
+            else:
+                yf_row = build_yfinance_row(th_sym)
+                if yf_row:
+                    combined_eval_dict[th_sym] = yf_row
+
     all_eval_rows = list(combined_eval_dict.values())
-    logger.info(f"Evaluating {len(all_eval_rows)} prioritized candidate, portfolio & 5-day EP tickers in parallel...")
+    reconcile_live_quotes(all_eval_rows, session_type)
+    logger.info(f"Evaluating {len(all_eval_rows)} prioritized candidate, portfolio, 5-day EP & thematic tickers in parallel...")
     
     processed_candidates = []
     if all_eval_rows:
@@ -693,11 +901,128 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
         if t_sym not in analyst_lookup:
             analyst_lookup[t_sym] = f"{act.get('action', 'Rating')}: {act.get('rating', '')}"
 
-    # Attach Analyst, Options Gamma, and Compute 5-Star Setup Score for ALL evaluated tickers
+    # Tiered Flash Earnings: Zero-Redundancy Fundamental Caching & Change Detection
+    # Only pull remote fundamentals when there are breaking earnings releases or when force_refresh=True
+    from sources.earnings_intelligence import KNOWN_ETFS
+    
+    is_weekend = (now_est.weekday() >= 5)
+
+    breaking_earnings_syms = set()
+    if earnings_data and not is_weekend:
+        for bucket in ("yesterday_amc", "today_bmo", "today_amc"):
+            for it in earnings_data.get(bucket, []):
+                t_s = (it.get("ticker") or "").upper().strip()
+                if t_s and t_s not in KNOWN_ETFS:
+                    breaking_earnings_syms.add(t_s)
+
+    # Catalyst & Event-Driven Set: Only re-evaluate fundamentals for tickers with active catalyst events
+    material_catalyst_syms = set(breaking_earnings_syms) | set(port_tickers_set)
+    for it in day_watchlist:
+        sym = (it.get("ticker") or "").upper().strip()
+        if not sym or sym in KNOWN_ETFS:
+            continue
+        stars = float(it.get("catalyst_stars", 0.0) or 0.0)
+        c_type = str(it.get("catalyst_type", "") or "")
+        if stars >= 4.0 or c_type in ("EARNINGS_BEAT", "CONTRACT_WIN", "FDA_APPROVAL", "MA_RUMOR", "GUIDANCE_RAISE", "PARTNERSHIP"):
+            material_catalyst_syms.add(sym)
+
+    flash_results_map = {}
+    
+    # 1. Reuse pre-cached batch reports from summary.json
+    if not force_refresh:
+        try:
+            existing_summary = earnings_scheduler.get_summary_reports()
+            for rep in existing_summary.get("reports", []):
+                rep_sym = (rep.get("ticker") or "").upper().strip()
+                if rep_sym and rep.get("flash_summary"):
+                    f_factors = (rep.get("flash_summary") or {}).get("factors") or {}
+                    # If this is not an active breaking earnings stock missing reported EPS, reuse cached summary
+                    if rep_sym not in breaking_earnings_syms or f_factors.get("actual_eps") is not None:
+                        flash_results_map[rep_sym] = rep["flash_summary"]
+        except Exception as e:
+            logger.debug(f"Error loading summary.json cache: {e}")
+
+        # 2. Also check individual reports in data/earnings_reports/*.json
+        try:
+            reports_dir = DATA_DIR / "earnings_reports"
+            if reports_dir.exists():
+                for r_path in reports_dir.glob("*.json"):
+                    r_sym = r_path.stem.upper().strip()
+                    if r_sym and r_sym not in flash_results_map:
+                        try:
+                            with open(r_path, "r", encoding="utf-8") as f:
+                                r_data = json.load(f)
+                                if r_data.get("flash_summary"):
+                                    flash_results_map[r_sym] = r_data["flash_summary"]
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug(f"Error loading earnings_reports cache: {e}")
+
+    # 3. Catalyst-Driven Evaluation:
+    # Only pull remote data or run fundamental calculations for:
+    #   a) Breaking earnings symbols (today/yesterday)
+    #   b) High-impact material catalysts (4-5 star news, FDA, Contract wins, Guidance revisions)
+    #   c) Portfolio holdings
+    #   d) When force_refresh is True
+    # For all non-catalyst stocks over the weekend or regular hours, strictly read local cache (fetch_remote=False)
+    tickers_to_evaluate = []
+    for item in day_watchlist:
+        sym = item["ticker"]
+        if sym in KNOWN_ETFS:
+            continue
+        # If already cached in memory, re-use instantly with 0ms latency
+        if sym in flash_results_map:
+            continue
+        if sym in earnings_intel._flash_cache and not force_refresh:
+            flash_results_map[sym] = earnings_intel._flash_cache[sym]
+            continue
+        
+        # Determine if remote fetch is permitted (Never remote on weekends unless forced)
+        should_fetch_remote = (not is_weekend) and (force_refresh or (sym in breaking_earnings_syms))
+        
+        # Only spend compute on active catalyst events, breaking earnings, portfolio holdings, or forced refresh
+        if sym in material_catalyst_syms or force_refresh:
+            tickers_to_evaluate.append((item, should_fetch_remote))
+
+    if tickers_to_evaluate:
+        with ThreadPoolExecutor(max_workers=min(20, len(tickers_to_evaluate))) as flash_executor:
+            future_to_item = {
+                flash_executor.submit(
+                    earnings_intel.analyze_flash_earnings,
+                    item["ticker"],
+                    item["price"],
+                    item["gap_pct"],
+                    item["rvol"],
+                    fetch_remote
+                ): item["ticker"]
+                for item, fetch_remote in tickers_to_evaluate
+            }
+            for fut in as_completed(future_to_item):
+                sym = future_to_item[fut]
+                try:
+                    flash_results_map[sym] = fut.result()
+                except Exception as e:
+                    logger.debug(f"Earnings flash error for {sym}: {e}")
+
+    # Attach Analyst, Options Gamma, Setup Score, and Earnings Flash for ALL evaluated tickers
     for item in day_watchlist:
         sym = item["ticker"]
         cur_price = item["price"]
+        gap_pct = item.get("gap_pct", 0.0)
+        rvol = item.get("rvol", 1.0)
         item["analyst_rating"] = analyst_lookup.get(sym, "—")
+
+        # Ensure earnings flash reflects real Day 1 metrics, with fallback to screener price
+        ef = flash_results_map.get(sym)
+        if ef:
+            if not ef.get("current_price") or ef.get("current_price") == 0:
+                ef["current_price"] = cur_price
+            if ef.get("gap_pct") is None or ef.get("gap_pct") == 0:
+                ef["gap_pct"] = gap_pct
+            if not ef.get("rvol") or ef.get("rvol") == 1.0:
+                ef["rvol"] = rvol
+            item["earnings_flash"] = ef
 
         # Gamma & Options Structure
         gamma_info = ticker_gamma_lookup.get(sym)
@@ -762,25 +1087,64 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
         item["trade_plan"] = score_dict.get("trade_plan", {}) or (item.get("pattern_info", {}).get("trade_plan", {}))
         item["criteria_checklist"] = score_dict.get("criteria_checklist", {}) or (item.get("pattern_info", {}).get("criteria_checklist", {}))
 
-        # Compute Dynamic ATR-Parity Position Sizing with Gamma Gating, Conviction Multiplier & Exhaustion Limit
+        # Cross-reference with ETF Sector & Sub-Industry Capital Flow
+        is_hot_sec, sec_flow_rationale, sec_flow_mult = sector_flow_engine.is_stock_in_hot_sector(
+            item.get("sector", ""),
+            item.get("industry", ""),
+            sector_flow_data
+        )
+        item["is_hot_sector"] = is_hot_sec
+        item["sector_flow_rationale"] = sec_flow_rationale
+        item["sector_flow_multiplier"] = sec_flow_mult
+
+        # Compute Practical Dynamic Position Sizing (min of ATR Risk Parity and 10% Free Cash)
         macro_mult = macro_data.get("composite_multiplier", 0.95)
-        flow_fac = item.get("flow_sizing_factor", 1.00)
+        raw_options_flow_fac = item.get("flow_sizing_factor", 1.00)
+        combined_flow_fac = round(raw_options_flow_fac * sec_flow_mult, 2)
+        item["combined_flow_factor"] = combined_flow_fac
         pattern_mult = item.get("trade_plan", {}).get("conviction_mult", 1.00)
         stop_level = item.get("trade_plan", {}).get("hard_stop", round(cur_price * 0.96, 2))
         has_gamma = score_dict.get("has_bullish_gamma") or score_dict.get("cw_above_price")
         
+        port_nav = float(raw_port_data.get("total_nav", 336870.83) or 336870.83)
+        port_cash = float(raw_port_data.get("cash_balance", 70830.35) or 70830.35)
+        target_cash_alloc = float(raw_port_data.get("target_cash_allocation", port_nav * 0.10) or (port_nav * 0.10))
+
         sizing = setup_scorer.calculate_position_size(
-            portfolio_nav=336870.83,
-            risk_pct=0.75,
+            portfolio_nav=port_nav,
+            available_cash=port_cash,
+            target_cash_allocation=target_cash_alloc,
             price=cur_price,
             stop_loss=stop_level,
+            risk_pct=0.75,
             macro_multiplier=macro_mult,
-            flow_factor=flow_fac,
+            flow_factor=combined_flow_fac,
             pattern_multiplier=pattern_mult,
             has_gamma_alignment=bool(has_gamma),
             is_exhausted=item.get("is_exhausted", False)
         )
         item["sizing"] = sizing
+
+        # Quantitative Fast Flash Earnings & SUE Factor Extraction (Option A)
+        flash = flash_results_map.get(sym)
+        if flash:
+            factors = flash.get("factors") or {}
+            item["earnings_flash"] = flash
+            item["earnings_sue"] = factors.get("sue", 0.0)
+            item["earnings_pead"] = factors.get("pead_score", 50.0)
+            item["earnings_badge"] = factors.get("category_label", "—")
+            item["earnings_badge_color"] = factors.get("badge_color", "#6b7280")
+            item["thesis_impact"] = flash.get("thesis_label", "🟡 MAINTAINED")
+            item["earnings_playbook"] = flash.get("active_playbook", "Standard Hold")
+            item["earnings_flash_json"] = json.dumps(flash)
+        else:
+            item["earnings_sue"] = 0.0
+            item["earnings_pead"] = 50.0
+            item["earnings_badge"] = "—"
+            item["earnings_badge_color"] = "#6b7280"
+            item["thesis_impact"] = "🟡 MAINTAINED"
+            item["earnings_playbook"] = "Standard Hold"
+            item["earnings_flash_json"] = "{}"
 
     # Sort watchlist: Institutional qualified first, then Setup Score desc, then Gap % desc, then RVOL desc
     day_watchlist.sort(key=lambda x: (x.get("is_inst_qualified", False), x.get("setup_score", 0.0), x.get("gap_pct", 0.0), x.get("rvol", 0.0)), reverse=True)
@@ -790,6 +1154,19 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
 
     # Load & enrich real portfolio data with live market intelligence
     portfolio_data = portfolio_mgr.enrich_live_metrics(market_lookup=market_data_lookup)
+
+    # Ingest batch 4-Master earnings summaries and 48H Portfolio Earnings Radar
+    try:
+        earnings_summary = earnings_scheduler.get_summary_reports()
+    except Exception as e:
+        logger.debug(f"Error fetching earnings batch summary: {e}")
+        earnings_summary = {"reports": []}
+    
+    try:
+        earnings_radar = portfolio_mgr.get_portfolio_earnings_radar(portfolio_data)
+    except Exception as e:
+        logger.debug(f"Error building earnings radar: {e}")
+        earnings_radar = []
 
     # 6. Render Terminal Summary and Save HTML Report
     logger.info("Step 6/6: Rendering Report Output...")
@@ -801,7 +1178,10 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
         analyst_actions=analyst_actions,
         options_aggregated=options_aggregated,
         session_label=session_label,
-        portfolio_data=portfolio_data
+        portfolio_data=portfolio_data,
+        earnings_summary=earnings_summary,
+        earnings_radar=earnings_radar,
+        sector_flow_data=sector_flow_data,
     )
 
     # Print to console
@@ -817,6 +1197,13 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
 
     print(f"\n[OK] Dashboard generated successfully: file:///{html_file.as_posix()}")
 
+    # Start lightweight local portfolio sync server on port 8050 if not running
+    try:
+        from sources.portfolio_server import ensure_server_running
+        ensure_server_running()
+    except Exception as e:
+        logger.debug(f"Could not start background portfolio server: {e}")
+
     if open_browser:
         try:
             logger.info("Opening dashboard in default web browser...")
@@ -827,32 +1214,60 @@ def run_screener_pipeline(open_browser: bool = True, force_refresh: bool = False
     return html_file
 
 def run_realtime_loop(open_browser: bool = True):
-    """Continuous real-time screener loop with rate-limit protection."""
-    logger.info(f"Starting Real-Time Engine (Polling cycle: {REALTIME_REFRESH_INTERVAL}s)... Press Ctrl+C to stop.")
+    """Continuous real-time screener loop with rate-limit and weekend cadence protection."""
+    logger.info("Starting Real-Time Engine... Press Ctrl+C to stop.")
     first_run = True
     while True:
         try:
             run_screener_pipeline(open_browser=(open_browser and first_run), force_refresh=False)
             first_run = False
-            logger.info(f"Sleeping {REALTIME_REFRESH_INTERVAL}s until next live refresh...")
-            time.sleep(REALTIME_REFRESH_INTERVAL)
+            
+            now_est = datetime.datetime.now(TZ_EST)
+            is_weekend = (now_est.weekday() >= 5)
+            if is_weekend:
+                sleep_secs = 300  # 5-minute calm cadence on weekends (markets closed, quotes & SEC filings static)
+                logger.info(f"Weekend Cadence: Markets closed. Quotes & SEC filings static. Next routine check in {sleep_secs}s...")
+            else:
+                sleep_secs = REALTIME_REFRESH_INTERVAL
+                logger.info(f"Sleeping {sleep_secs}s until next live refresh...")
+            time.sleep(sleep_secs)
         except KeyboardInterrupt:
             logger.info("Real-Time Screener stopped by user.")
             break
         except Exception as e:
-            logger.error(f"Error in real-time screener loop: {e}")
+            logger.error(f"Error in real-time screener loop: {e}", exc_info=True)
             time.sleep(15)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Real-Time Institutional Market Screener & Dashboard")
     parser.add_argument("--realtime", "-r", action="store_true", help="Run in continuous real-time mode (auto-refreshes every 60s)")
+    parser.add_argument("--daemon", "-d", action="store_true", help="Launch autonomous institutional session daemon")
+    parser.add_argument("--session", "-s", type=str, choices=["premarket", "opening_bell", "midday", "eod", "postmarket"], help="Run designated session workflow")
     parser.add_argument("--no-browser", action="store_true", help="Do not open browser automatically")
     parser.add_argument("--headless", action="store_true", help="Run headlessly (for cron / task scheduler)")
     parser.add_argument("--force-refresh", action="store_true", help="Bypass all caches and fetch fresh data")
     args = parser.parse_args()
 
     open_browser = not (args.no_browser or args.headless)
-    if args.realtime:
+
+    if args.daemon:
+        from scheduler.system_daemon import SystemDaemon
+        SystemDaemon().run_continuous()
+    elif args.session:
+        from scheduler.system_daemon import SystemDaemon
+        daemon = SystemDaemon()
+        if args.session == "premarket":
+            daemon.run_premarket_workflow()
+        elif args.session == "opening_bell":
+            daemon.run_opening_bell_workflow()
+        elif args.session == "midday":
+            daemon.run_midday_workflow()
+        elif args.session == "eod":
+            daemon.run_eod_workflow()
+        elif args.session == "postmarket":
+            daemon.run_postmarket_workflow()
+    elif args.realtime:
         run_realtime_loop(open_browser=open_browser)
     else:
         run_screener_pipeline(open_browser=open_browser, force_refresh=args.force_refresh)
+

@@ -1,0 +1,137 @@
+{
+  "last_updated": "2026-09-19 19:21:07 ET",
+  "active_themes": [
+    "AI_INFRASTRUCTURE",
+    "NUCLEAR_GRID_MODERNIZATION",
+    "SEMICONDUCTOR_REINDUSTRIALIZATION",
+    "DEFENSE_AUTONOMOUS_SYSTEMS"
+  ],
+  "unpriced_chokepoint_candidates": [
+    {
+      "component": "Indium Phosphide (InP) Substrates",
+      "ticker": "AXTI",
+      "lead_time_weeks": 26,
+      "normal_lead_time": 8,
+      "ps_ratio": 4.8,
+      "theme": "AI_INFRASTRUCTURE",
+      "theme_title": "AI Infrastructure & Optical Interconnect"
+    },
+    {
+      "component": "Wafer-Level High-Density Probe Cards",
+      "ticker": "FORM",
+      "lead_time_weeks": 22,
+      "normal_lead_time": 10,
+      "ps_ratio": 6.2,
+      "theme": "AI_INFRASTRUCTURE",
+      "theme_title": "AI Infrastructure & Optical Interconnect"
+    },
+    {
+      "component": "Liquid Cooling Quick-Disconnect Couplings",
+      "ticker": "MOD",
+      "lead_time_weeks": 32,
+      "normal_lead_time": 12,
+      "ps_ratio": 2.1,
+      "theme": "AI_INFRASTRUCTURE",
+      "theme_title": "AI Infrastructure & Optical Interconnect"
+    },
+    {
+      "component": "High-Voltage Power Distribution Units",
+      "ticker": "VRT",
+      "lead_time_weeks": 48,
+      "normal_lead_time": 16,
+      "ps_ratio": 5.9,
+      "theme": "AI_INFRASTRUCTURE",
+      "theme_title": "AI Infrastructure & Optical Interconnect"
+    },
+    {
+      "component": "HALEU Nuclear Fuel Fabrication & Defense Reactors",
+      "ticker": "BWXT",
+      "lead_time_weeks": 52,
+      "normal_lead_time": 24,
+      "ps_ratio": 3.9,
+      "theme": "NUCLEAR_GRID_MODERNIZATION",
+      "theme_title": "Nuclear Baseload & Grid Re-Industrialization"
+    },
+    {
+      "component": "High-Voltage Grid Step-Up Transformers",
+      "ticker": "HUBB",
+      "lead_time_weeks": 110,
+      "normal_lead_time": 30,
+      "ps_ratio": 4.2,
+      "theme": "NUCLEAR_GRID_MODERNIZATION",
+      "theme_title": "Nuclear Baseload & Grid Re-Industrialization"
+    },
+    {
+      "component": "Heavy-Duty Gas & Nuclear Steam Turbines",
+      "ticker": "GEV",
+      "lead_time_weeks": 78,
+      "normal_lead_time": 28,
+      "ps_ratio": 2.8,
+      "theme": "NUCLEAR_GRID_MODERNIZATION",
+      "theme_title": "Nuclear Baseload & Grid Re-Industrialization"
+    },
+    {
+      "component": "Substation High-Voltage EPC Contracting",
+      "ticker": "PWR",
+      "lead_time_weeks": 60,
+      "normal_lead_time": 20,
+      "ps_ratio": 1.9,
+      "theme": "NUCLEAR_GRID_MODERNIZATION",
+      "theme_title": "Nuclear Baseload & Grid Re-Industrialization"
+    },
+    {
+      "component": "High-Current Ion Implantation Tools",
+      "ticker": "ACLS",
+      "lead_time_weeks": 36,
+      "normal_lead_time": 14,
+      "ps_ratio": 2.6,
+      "theme": "SEMICONDUCTOR_REINDUSTRIALIZATION",
+      "theme_title": "Semiconductor Packaging & Specialty Materials"
+    },
+    {
+      "component": "Ultra-High Purity Gas Delivery Subsystems",
+      "ticker": "UCTT",
+      "lead_time_weeks": 28,
+      "normal_lead_time": 10,
+      "ps_ratio": 0.8,
+      "theme": "SEMICONDUCTOR_REINDUSTRIALIZATION",
+      "theme_title": "Semiconductor Packaging & Specialty Materials"
+    },
+    {
+      "component": "Fluid Handling & Precision Mass Flow Controllers",
+      "ticker": "ICHR",
+      "lead_time_weeks": 24,
+      "normal_lead_time": 9,
+      "ps_ratio": 0.7,
+      "theme": "SEMICONDUCTOR_REINDUSTRIALIZATION",
+      "theme_title": "Semiconductor Packaging & Specialty Materials"
+    },
+    {
+      "component": "Solid Rocket Motor Propellant Casings",
+      "ticker": "CW",
+      "lead_time_weeks": 44,
+      "normal_lead_time": 16,
+      "ps_ratio": 3.6,
+      "theme": "DEFENSE_AUTONOMOUS_SYSTEMS",
+      "theme_title": "Defense Modernization & Autonomous Swarms"
+    },
+    {
+      "component": "Flight-Critical Avionics & Replacement Parts",
+      "ticker": "HEI",
+      "lead_time_weeks": 38,
+      "normal_lead_time": 14,
+      "ps_ratio": 9.8,
+      "theme": "DEFENSE_AUTONOMOUS_SYSTEMS",
+      "theme_title": "Defense Modernization & Autonomous Swarms"
+    },
+    {
+      "component": "Tactical Multi-Spectral Infrared Sensor Chips",
+      "ticker": "TDY",
+      "lead_time_weeks": 30,
+      "normal_lead_time": 12,
+      "ps_ratio": 4.5,
+      "theme": "DEFENSE_AUTONOMOUS_SYSTEMS",
+      "theme_title": "Defense Modernization & Autonomous Swarms"
+    }
+  ]
+}

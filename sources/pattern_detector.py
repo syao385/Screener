@@ -172,48 +172,60 @@ class PatternDetector:
             patterns_matched.append("VCP_CHEAT")
             preset_tags.append("MINERVINI_VCP")
 
-        # Pattern 4: Episodic Pivot (EP 1-3) - Arch B/C
+        # Pattern 4: Episodic Pivot (EP 1-5 Lifecycle) - Arch B/C
+        # Strict EP Rule: Must be a BULLISH catalyst shock (Gap >= +5% or Surge >= +4%, pct_change > 0, RVOL >= 1.35x)
         is_ep_day1 = False
         is_ep_day2 = False
         is_ep_day3 = False
         has_ep_catalyst = (catalyst_stars >= 3.0 and is_positive_catalyst) or any(
             t in catalyst_type.lower() for t in ["earnings", "fda", "m&a", "contract", "buyout", "guidance"]
         )
-        has_ep_momentum = (gap_pct >= 7.0) or (pct_from_open >= 4.0) or (pct_change >= 4.0 and gap_pct >= 0.0)
-
-        if has_ep_momentum and rvol >= 1.35 and has_ep_catalyst:
-            is_ep_day1 = True
-            patterns_matched.append("EP_DAY_1")
-            preset_tags.append("EP_DAY_1")
-            preset_tags.append("EP_5DAY_DB")
+        is_bullish_momentum = (pct_change > 0) and ((gap_pct >= 5.0) or (pct_from_open >= 4.0) or (pct_change >= 4.0 and gap_pct >= 0.0))
 
         if active_ep_record:
+            day1_gap = float(active_ep_record.get("day1_gap_pct", 0.0) or 0.0)
             ep_day_count = active_ep_record.get("day_count", 1)
-            preset_tags.append("EP_5DAY_DB")
-            if ep_day_count == 1 and not is_ep_day1:
+            
+            # An EP record is only valid if Day 1 was a positive shock
+            if day1_gap >= 0:
+                preset_tags.append("EP_5DAY_DB")
+                if ep_day_count == 1:
+                    if is_bullish_momentum and rvol >= 1.35 and has_ep_catalyst:
+                        is_ep_day1 = True
+                        patterns_matched.append("EP_DAY_1")
+                        preset_tags.append("EP_DAY_1")
+                elif 2 <= ep_day_count <= 5:
+                    day1_vwap = float(active_ep_record.get("day1_vwap", 0.0) or 0.0)
+                    day1_low = float(active_ep_record.get("day1_low", 0.0) or 0.0)
+                    day1_high = float(active_ep_record.get("day1_high", 0.0) or 0.0)
+                    day1_vol = float(active_ep_record.get("day1_volume", 0.0) or avg_vol_30d)
+
+                    vwap_target = day1_vwap if day1_vwap > 0 else sma5_num
+                    dist_to_vwap = (abs(price - vwap_target) / vwap_target) if vwap_target > 0 else 1.0
+                    holds_low = (price >= day1_low * 0.985) if day1_low > 0 else True
+                    vol_dryup = (volume < (day1_vol * 0.85)) if (day1_vol > 0 and volume > 0) else True
+
+                    # If price broke below Day 1 low, EP setup is invalidated
+                    if holds_low:
+                        if day1_high > 0 and price >= (day1_high * 0.995) and rvol >= 1.20:
+                            is_ep_day3 = True
+                            patterns_matched.append("EP_DAY_3_BREAKOUT")
+                            preset_tags.append("EP_DAY_2")
+                        elif dist_to_vwap <= 0.045:
+                            is_ep_day2 = True
+                            patterns_matched.append("EP_DAY_2_VWAP")
+                            preset_tags.append("EP_DAY_2")
+                        else:
+                            is_ep_day2 = True
+                            patterns_matched.append("EP_DAY_2_VWAP")
+                            preset_tags.append("EP_DAY_2")
+        else:
+            # Fresh Day 1 EP Shock evaluation
+            if is_bullish_momentum and rvol >= 1.35 and has_ep_catalyst:
                 is_ep_day1 = True
                 patterns_matched.append("EP_DAY_1")
                 preset_tags.append("EP_DAY_1")
-
-            day1_vwap = float(active_ep_record.get("day1_vwap", 0.0) or 0.0)
-            day1_low = float(active_ep_record.get("day1_low", 0.0) or 0.0)
-            day1_high = float(active_ep_record.get("day1_high", 0.0) or 0.0)
-            day1_vol = float(active_ep_record.get("day1_volume", 0.0) or avg_vol_30d)
-
-            vwap_target = day1_vwap if day1_vwap > 0 else sma5_num
-            dist_to_vwap = (abs(price - vwap_target) / vwap_target) if vwap_target > 0 else 1.0
-            holds_low = (price >= day1_low * 0.985) if day1_low > 0 else True
-            vol_dryup = (volume < (day1_vol * 0.85)) if (day1_vol > 0 and volume > 0) else True
-
-            if 2 <= ep_day_count <= 5:
-                if dist_to_vwap <= 0.035 and holds_low and vol_dryup:
-                    is_ep_day2 = True
-                    patterns_matched.append("EP_DAY_2_VWAP")
-                    preset_tags.append("EP_DAY_2")
-                elif day1_high > 0 and price >= (day1_high * 0.995) and rvol >= 1.20:
-                    is_ep_day3 = True
-                    patterns_matched.append("EP_DAY_3_BREAKOUT")
-                    preset_tags.append("EP_DAY_2")
+                preset_tags.append("EP_5DAY_DB")
 
         # Pattern 5: Stage 2 Pullback - Arch C
         is_stage2_pullback = False

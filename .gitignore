@@ -6,6 +6,9 @@ __pycache__/
 # Caches
 .cache/
 data/cache/
+data/fundamental_cache/
+data/deep_research/
+data/earnings_reports/
 *.log
 
 # Environments

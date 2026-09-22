@@ -12,7 +12,7 @@ logger = logging.getLogger("earnings_calendar")
 class EarningsCalendar:
     """Fetches real-time Finviz earnings strictly for Yesterday AMC, Today BMO/AMC, and Tomorrow BMO/AMC."""
 
-    def _scrape_finviz_screener(self, filter_code: str, timing_label: str, max_pages: int = 2) -> List[Dict[str, Any]]:
+    def _scrape_finviz_screener(self, filter_code: str, timing_label: str, target_date_iso: str = None, max_pages: int = 2) -> List[Dict[str, Any]]:
         """Helper to scrape Finviz screener for an earnings filter across pages."""
         items = []
         try:
@@ -53,6 +53,7 @@ class EarningsCalendar:
                                     "company": company,
                                     "sector": sector,
                                     "industry": industry,
+                                    "date": target_date_iso,
                                     "timing": timing_label,
                                     "market_cap": mkt_cap,
                                     "price": price,
@@ -70,17 +71,26 @@ class EarningsCalendar:
 
     def get_earnings_dashboard(self) -> Dict[str, Any]:
         """Fetch all Yesterday AMC, Today BMO/AMC, and Tomorrow BMO/AMC earnings (No next week)."""
-        logger.info("Fetching Finviz-style Earnings Calendar (Yesterday, Today & Tomorrow)...")
         now_est = datetime.datetime.now(TZ_EST)
+        if hasattr(self, "_cached_dashboard") and getattr(self, "_cached_dashboard_time", None):
+            age = (now_est - self._cached_dashboard_time).total_seconds()
+            if age < 300:
+                return self._cached_dashboard
+
+        logger.info("Fetching Finviz-style Earnings Calendar (Yesterday, Today & Tomorrow)...")
         today_str = now_est.strftime("%b %d")
         yest_str = (now_est - datetime.timedelta(days=1)).strftime("%b %d")
         tom_str = (now_est + datetime.timedelta(days=1)).strftime("%b %d")
 
-        today_bmo = self._scrape_finviz_screener("earningsdate_todaybefore", timing_label=f"{today_str} b", max_pages=2)
-        yesterday_amc = self._scrape_finviz_screener("earningsdate_yesterdayafter", timing_label=f"{yest_str} a", max_pages=2)
-        today_amc = self._scrape_finviz_screener("earningsdate_todayafter", timing_label=f"{today_str} a", max_pages=2)
-        tomorrow_bmo = self._scrape_finviz_screener("earningsdate_tomorrowbefore", timing_label=f"{tom_str} b", max_pages=2)
-        tomorrow_amc = self._scrape_finviz_screener("earningsdate_tomorrowafter", timing_label=f"{tom_str} a", max_pages=2)
+        today_iso = now_est.strftime("%Y-%m-%d")
+        yest_iso = (now_est - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+        tom_iso = (now_est + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+
+        today_bmo = self._scrape_finviz_screener("earningsdate_todaybefore", timing_label=f"{today_str} b", target_date_iso=today_iso, max_pages=1)
+        yesterday_amc = self._scrape_finviz_screener("earningsdate_yesterdayafter", timing_label=f"{yest_str} a", target_date_iso=yest_iso, max_pages=1)
+        today_amc = self._scrape_finviz_screener("earningsdate_todayafter", timing_label=f"{today_str} a", target_date_iso=today_iso, max_pages=1)
+        tomorrow_bmo = self._scrape_finviz_screener("earningsdate_tomorrowbefore", timing_label=f"{tom_str} b", target_date_iso=tom_iso, max_pages=1)
+        tomorrow_amc = self._scrape_finviz_screener("earningsdate_tomorrowafter", timing_label=f"{tom_str} a", target_date_iso=tom_iso, max_pages=1)
 
         # Merge unique upcoming items (Today AMC + Tomorrow BMO + Tomorrow AMC)
         existing_tickers = {x["ticker"] for x in today_bmo} | {x["ticker"] for x in yesterday_amc}
@@ -92,7 +102,7 @@ class EarningsCalendar:
 
         logger.info(f"Retrieved Earnings: Today BMO ({len(today_bmo)}), Yesterday AMC ({len(yesterday_amc)}), Today AMC ({len(today_amc)}), Tomorrow BMO/AMC ({len(tomorrow_bmo) + len(tomorrow_amc)})")
 
-        return {
+        res = {
             "today_bmo": today_bmo,
             "yesterday_amc": yesterday_amc,
             "today_amc": today_amc,
@@ -105,5 +115,12 @@ class EarningsCalendar:
             "source": "Finviz Earnings Screener (finviz.com/screener.ashx)",
             "timestamp": now_est.strftime("%Y-%m-%d %H:%M ET"),
         }
+        self._cached_dashboard = res
+        self._cached_dashboard_time = now_est
+        return res
+
+    def get_full_calendar(self) -> Dict[str, Any]:
+        """Alias for get_earnings_dashboard for backward compatibility."""
+        return self.get_earnings_dashboard()
 
 earnings_cal = EarningsCalendar()

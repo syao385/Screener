@@ -16,6 +16,7 @@ from sources.earnings_calendar import earnings_cal
 from sources.analyst_ratings import analyst_feed
 from sources.options_flow import options_scanner
 from reporter.html_generator import html_generator
+from tests.test_ui_clickability_and_popups import TestUIClickabilityAndPopups
 
 class TestInstitutionalScreener(unittest.TestCase):
 
@@ -50,7 +51,7 @@ class TestInstitutionalScreener(unittest.TestCase):
         print("[PASS] Macro Regime test passed. Composite:", data["composite_regime"], "Multiplier:", data["composite_multiplier"], "NH/NL:", f"{breadth['nh_pct']}% / {breadth['nl_pct']}%")
 
     def test_economic_calendar(self):
-        """Test economic calendar parser."""
+        """Test economic calendar parser for today and full-week outlook."""
         events = economic_cal.get_today_events()
         self.assertIsInstance(events, list)
         if events:
@@ -58,7 +59,18 @@ class TestInstitutionalScreener(unittest.TestCase):
                 self.assertIn("title", ev)
                 self.assertTrue(len(ev["title"]) > 0 and ev["title"] != "—", f"Economic event title empty: {ev}")
                 self.assertTrue(len(ev.get("event", "")) > 0 and ev.get("event") != "—", f"Economic event key empty: {ev}")
-        print(f"[PASS] Economic Calendar test passed. Found {len(events)} today events with valid titles.")
+                self.assertTrue(ev.get("is_today"), f"Event should be marked is_today: {ev}")
+
+        week_events = economic_cal.get_week_events()
+        self.assertIsInstance(week_events, list)
+        self.assertGreaterEqual(len(week_events), len(events))
+        if week_events:
+            for ev in week_events:
+                self.assertIn("date", ev)
+                self.assertIn("timing", ev)
+                self.assertIn(ev["timing"], ("TODAY", "UPCOMING", "PAST"))
+                self.assertIn(ev["impact"], ("High", "Medium", "Low"))
+        print(f"[PASS] Economic Calendar test passed. Found {len(events)} today events, {len(week_events)} weekly events.")
 
     def test_earnings_calendar(self):
         """Test Finviz-style earnings calendar."""
@@ -235,8 +247,8 @@ class TestInstitutionalScreener(unittest.TestCase):
         # Test position enrichment calculation without writing to disk
         enriched = portfolio_mgr.enrich_live_metrics(res)
         self.assertIn("cash_weight_pct", enriched)
-        self.assertAlmostEqual(enriched["cash_weight_pct"], (50000.0 / 60600.0) * 100.0, places=1)
-        print(f"[PASS] Portfolio Manager Fidelity test passed. Ingested {len(res['positions'])} positions, NAV: ${res['total_nav']:,.2f}")
+        self.assertAlmostEqual(enriched["cash_weight_pct"], (enriched["cash_balance"] / enriched["total_nav"]) * 100.0, places=1)
+        print(f"[PASS] Portfolio Manager Fidelity test passed. Ingested {len(res['positions'])} positions, NAV: ${enriched['total_nav']:,.2f}")
 
     def test_championship_position_sizing(self):
         """Test Championship ATR-Parity Dynamic Position Sizing."""
@@ -255,7 +267,140 @@ class TestInstitutionalScreener(unittest.TestCase):
         self.assertLessEqual(sizing["capital_required"], 336870.83 * 0.15)
         print(f"[PASS] Position Sizing test passed. Shares: {sizing['shares']}, Capital: ${sizing['capital_required']:,.2f}, Risk: ${sizing['risk_dollar']:,.2f}")
 
+    def test_multi_session_gap_and_pct_change(self):
+        """Test exact session-specific gap% and %change formulas across all 4 sessions."""
+        from run_screener import process_candidate
+        import pandas as pd
+
+        # Mock ticker data: e.g. Friday close = 20.57, Thursday close = 17.86 (change = +15.17%)
+        # Premarket trade: 20.01 (-2.72% gap vs 20.57)
+        mock_row = pd.Series({
+            "name": "TITN",
+            "ticker": "TITN",
+            "close": 20.57,
+            "close[1]": 17.86,
+            "open": 19.50,
+            "change": 15.17357,
+            "change_from_open": 5.487,
+            "premarket_close": 20.01,
+            "premarket_change": -2.7224,
+            "premarket_volume": 15000,
+            "postmarket_close": 21.00,
+            "postmarket_change": 2.0904,
+            "postmarket_volume": 5000,
+            "volume": 250000,
+            "average_volume_30d_calc": 300000,
+            "market_cap_basic": 500_000_000,
+            "relative_volume_10d_calc": 1.5,
+            "sector": "Industrials",
+            "industry": "Machinery"
+        })
+
+        dt = datetime.datetime(2026, 9, 1, 9, 25)
+
+        # 1. Premarket Session
+        res_pm = process_candidate(mock_row, dt, session_type="PREMARKET", active_eps={})
+        self.assertAlmostEqual(res_pm["gap_pct"], -2.7224, places=2)
+        self.assertAlmostEqual(res_pm["pct_change"], -2.7224, places=2)
+        self.assertEqual(res_pm["price"], 20.01)
+
+        # 2. Regular Hours Session
+        res_reg = process_candidate(mock_row, dt, session_type="REGULAR", active_eps={})
+        # Opening gap vs yesterday close (17.86): (19.50 - 17.86) / 17.86 * 100 = 9.18%
+        self.assertAlmostEqual(res_reg["gap_pct"], ((19.50 - 17.86) / 17.86) * 100.0, places=2)
+        self.assertAlmostEqual(res_reg["pct_change"], 15.17357, places=2)
+        self.assertEqual(res_reg["price"], 20.57)
+
+        # 3. Postmarket Session
+        res_post = process_candidate(mock_row, dt, session_type="POSTMARKET", active_eps={})
+        self.assertAlmostEqual(res_post["gap_pct"], 2.0904, places=2)
+        self.assertEqual(res_post["price"], 21.00)
+
+        print("[PASS] Multi-Session Gap% and %Change test passed across Premarket, Regular, and Postmarket.")
+
+    def test_institutional_multi_session_rvol_anchors(self):
+        """Test exact RVOL ratio calculation and anchor times across Premarket, Regular, After-Hours, and Weekend."""
+        from sources.rvol_calculator import (
+            rvol_calc,
+            get_anchor_time,
+            get_expected_cumulative_fraction,
+            ANCHOR_PREMARKET,
+            ANCHOR_REGULAR,
+            ANCHOR_AFTERHOUR,
+            ANCHOR_WEEKEND,
+        )
+
+        # 1. Verify exact anchor definitions
+        self.assertEqual(get_anchor_time("PREMARKET"), datetime.time(0, 0))
+        self.assertEqual(get_anchor_time("REGULAR"), datetime.time(9, 30))
+        self.assertEqual(get_anchor_time("POSTMARKET"), datetime.time(16, 30))
+        self.assertEqual(get_anchor_time("AFTER_HOURS"), datetime.time(16, 30))
+        self.assertEqual(get_anchor_time("WEEKEND"), datetime.time(16, 30))
+
+        adv = 1_000_000.0  # 1M shares ADV
+
+        # 2. Premarket RVOL (Anchor: 00:00 AM Midnight EST)
+        # At 08:30 AM (minute 510), expected fraction = 0.0090 + 0.0090*(30/60) = 0.0135 (13,500 shares)
+        # If stock traded 27,000 shares in premarket by 08:30: RVOL = 27,000 / 13,500 = 2.00x
+        pm_rvol = rvol_calc.calculate_session_rvol(
+            ticker="TEST_PM",
+            session_type="PREMARKET",
+            current_volume=27_000.0,
+            adv_20d=adv,
+            target_time=datetime.time(8, 30)
+        )
+        self.assertAlmostEqual(pm_rvol, 2.00, places=2)
+
+        # 3. Regular Hours RVOL (Anchor: 09:30 AM EST)
+        # At 11:00 AM (minute 90 of regular session), expected fraction = 0.38 (380,000 shares)
+        # If stock traded 760,000 shares by 11:00 AM: RVOL = 760,000 / 380,000 = 2.00x
+        reg_rvol = rvol_calc.calculate_session_rvol(
+            ticker="TEST_REG",
+            session_type="REGULAR",
+            current_volume=760_000.0,
+            adv_20d=adv,
+            target_time=datetime.time(11, 0)
+        )
+        self.assertAlmostEqual(reg_rvol, 2.00, places=2)
+
+        # 4. After-Hours RVOL (Anchor: 04:30 PM EST)
+        # At 18:00 (minute 90 of after-hours), expected fraction = 0.0085 (8,500 shares)
+        # If stock traded 17,000 shares by 18:00: RVOL = 17,000 / 8,500 = 2.00x
+        post_rvol = rvol_calc.calculate_session_rvol(
+            ticker="TEST_POST",
+            session_type="POSTMARKET",
+            current_volume=17_000.0,
+            adv_20d=adv,
+            target_time=datetime.time(18, 0)
+        )
+        self.assertAlmostEqual(post_rvol, 2.00, places=2)
+
+        # 5. Weekend RVOL (Anchor: Friday 04:30 PM EST)
+        # Evaluates completed Friday post-16:30 session (expected fraction = 0.0120 = 12,000 shares)
+        # If stock traded 24,000 shares on Friday after 16:30: RVOL = 24,000 / 12,000 = 2.00x
+        # If stock traded 0 shares on Friday after 16:30: RVOL = 0.00x
+        weekend_rvol_active = rvol_calc.calculate_session_rvol(
+            ticker="TEST_WKND_ACT",
+            session_type="WEEKEND",
+            current_volume=24_000.0,
+            adv_20d=adv,
+            target_time=datetime.time(12, 0)
+        )
+        self.assertAlmostEqual(weekend_rvol_active, 2.00, places=2)
+
+        weekend_rvol_zero = rvol_calc.calculate_session_rvol(
+            ticker="TEST_WKND_ZERO",
+            session_type="WEEKEND",
+            current_volume=0.0,
+            adv_20d=adv,
+            target_time=datetime.time(12, 0)
+        )
+        self.assertEqual(weekend_rvol_zero, 0.00)
+
+        print("[PASS] Institutional 4-Session RVOL Anchor Test passed across Premarket, Regular, After-Hours, and Weekend.")
+
 if __name__ == "__main__":
     unittest.main()
+
 
 

@@ -1,0 +1,15 @@
+{
+  "session_date": "2026-09-22",
+  "high_water_mark_nav": 336870.83,
+  "current_nav": 336870.83,
+  "intraday_drawdown_pct": 0.0,
+  "max_drawdown_pct": -3.5,
+  "circuit_breaker_level": "NORMAL",
+  "last_alert_level": "NORMAL",
+  "last_updated": "2026-09-22 11:59:21 ET",
+  "vix_backwardation": false,
+  "vix_ratio": 0.93,
+  "gamma_flip_breach": false,
+  "manual_override": false,
+  "history": []
+}
