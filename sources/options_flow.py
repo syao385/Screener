@@ -204,16 +204,18 @@ class OptionsFlowScanner:
             vol_oi_ratio = round(total_45d_vol / total_45d_oi, 2) if total_45d_oi > 0 else 1.0
             pc_ratio = round(tot_put_vol / tot_call_vol, 2) if tot_call_vol > 0 else 1.0
 
-            # Call Wall & Put Wall
+            # Call Wall & Put Wall (Aggregated by strike across all expirations within 45-day window)
             call_wall = 0.0
-            if not df_calls.empty and df_calls["openInterest"].max() > 0:
-                cw_row = df_calls.loc[df_calls["openInterest"].idxmax()]
-                call_wall = float(cw_row["strike"])
+            if not df_calls.empty:
+                call_oi_by_strike = df_calls.groupby("strike")["openInterest"].sum()
+                if not call_oi_by_strike.empty and call_oi_by_strike.max() > 0:
+                    call_wall = float(call_oi_by_strike.idxmax())
 
             put_wall = 0.0
-            if not df_puts.empty and df_puts["openInterest"].max() > 0:
-                pw_row = df_puts.loc[df_puts["openInterest"].idxmax()]
-                put_wall = float(pw_row["strike"])
+            if not df_puts.empty:
+                put_oi_by_strike = df_puts.groupby("strike")["openInterest"].sum()
+                if not put_oi_by_strike.empty and put_oi_by_strike.max() > 0:
+                    put_wall = float(put_oi_by_strike.idxmax())
 
             # Gamma Flip
             total_weight = tot_call_oi + tot_put_oi
